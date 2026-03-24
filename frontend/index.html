@@ -108,6 +108,14 @@
         .chart-section .chart-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
         #wl-chart { width: 100%; height: 180px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
 
+        .ercot-panel { padding: 16px; border-bottom: 1px solid #334155; }
+        .ercot-panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+        .fuel-bar { display: flex; height: 24px; border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+        .fuel-bar div { display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 600; color: #fff; min-width: 30px; }
+        .fuel-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.75rem; color: #94a3b8; }
+        .fuel-legend span { display: flex; align-items: center; gap: 4px; }
+        .fuel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
         .leaflet-popup-content-wrapper {
             background: #1e293b;
             color: #e2e8f0;
@@ -142,6 +150,10 @@
                 <div class="stat-value" id="stat-counties">-</div>
                 <div class="stat-label">Counties</div>
             </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-ercot">-</div>
+                <div class="stat-label">ERCOT MW</div>
+            </div>
         </div>
     </header>
 
@@ -156,6 +168,11 @@
                 <h2>Aquifer Level Trend</h2>
                 <div class="chart-subtitle">Avg. depth to water near site (modeled from TWDB regional data)</div>
                 <canvas id="wl-chart"></canvas>
+            </div>
+            <div class="ercot-panel">
+                <h2>ERCOT Generation Queue</h2>
+                <div class="fuel-bar" id="fuel-bar"></div>
+                <div class="fuel-legend" id="fuel-legend"></div>
             </div>
             <div class="calc-section">
                 <h2>Water Impact Calculator</h2>

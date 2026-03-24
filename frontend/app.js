@@ -77,6 +77,8 @@ async function loadDashboard() {
     document.getElementById('stat-sites').textContent = data.sites.length;
     document.getElementById('stat-wells').textContent = data.total_wells.toLocaleString();
     document.getElementById('stat-counties').textContent = data.counties_covered;
+    document.getElementById('stat-ercot').textContent =
+        data.ercot_total_mw ? Math.round(data.ercot_total_mw / 1000) + 'K' : '-';
 
     return data;
 }
@@ -345,6 +347,51 @@ function drawChart(data) {
 
 
 // ---------------------------------------------------------------------------
+// ERCOT generation queue breakdown
+// ---------------------------------------------------------------------------
+
+const FUEL_COLORS = {
+    Solar: '#facc15',
+    Wind: '#38bdf8',
+    Battery: '#a78bfa',
+    Gas: '#f87171',
+    Other: '#6b7280',
+};
+
+async function loadErcotSummary() {
+    try {
+        const data = await fetchJSON('/api/ercot/summary');
+        const barEl = document.getElementById('fuel-bar');
+        const legendEl = document.getElementById('fuel-legend');
+        const totalMW = data.total_mw || 1;
+
+        barEl.innerHTML = '';
+        legendEl.innerHTML = '';
+
+        data.by_fuel.forEach(item => {
+            const fuel = item.fuel_type || 'Other';
+            const mw = parseFloat(item.total_mw) || 0;
+            const pct = (mw / totalMW) * 100;
+            const color = FUEL_COLORS[fuel] || FUEL_COLORS.Other;
+
+            const seg = document.createElement('div');
+            seg.style.width = pct + '%';
+            seg.style.background = color;
+            seg.textContent = pct > 8 ? Math.round(mw).toLocaleString() : '';
+            seg.title = `${fuel}: ${Math.round(mw).toLocaleString()} MW (${item.project_count} projects)`;
+            barEl.appendChild(seg);
+
+            const legend = document.createElement('span');
+            legend.innerHTML = `<span class="fuel-dot" style="background:${color}"></span>${fuel}: ${Math.round(mw).toLocaleString()} MW`;
+            legendEl.appendChild(legend);
+        });
+    } catch (err) {
+        console.error('ERCOT load error:', err);
+    }
+}
+
+
+// ---------------------------------------------------------------------------
 // Water impact calculator
 // ---------------------------------------------------------------------------
 
@@ -377,7 +424,7 @@ document.getElementById('calc-cooling').addEventListener('change', updateCalc);
     try {
         await loadDashboard();
         await loadSites();
-        await loadWells(null);  // load all wells initially
+        await Promise.all([loadWells(null), loadErcotSummary()]);
         updateCalc();
     } catch (err) {
         console.error('Failed to load:', err);

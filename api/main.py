@@ -114,10 +114,75 @@ def dashboard():
             """)
             county_count = cur.fetchone()["counties"]
 
+            cur.execute("""
+                SELECT COUNT(*) AS projects, COALESCE(SUM(capacity_mw), 0) AS total_mw
+                FROM ercot_gen_queue
+            """)
+            ercot = cur.fetchone()
+
             return {
                 "sites": sites,
                 "total_wells": well_count,
                 "counties_covered": county_count,
+                "ercot_projects": ercot["projects"],
+                "ercot_total_mw": float(ercot["total_mw"]),
+            }
+
+
+@app.get("/api/ercot")
+def list_ercot(
+    county: Optional[str] = Query(None),
+    fuel: Optional[str] = Query(None),
+):
+    """ERCOT generation interconnection queue for West Texas."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            conditions = ["1=1"]
+            params: list = []
+            if county:
+                conditions.append("county = %s")
+                params.append(county)
+            if fuel:
+                conditions.append("fuel_type = %s")
+                params.append(fuel)
+
+            cur.execute(f"""
+                SELECT inr_number, project_name, fuel_type, capacity_mw,
+                       county, status, projected_cod,
+                       interconnection_bus, tsp, ercot_region
+                FROM ercot_gen_queue
+                WHERE {' AND '.join(conditions)}
+                ORDER BY capacity_mw DESC NULLS LAST
+            """, params)
+            return cur.fetchall()
+
+
+@app.get("/api/ercot/summary")
+def ercot_summary():
+    """Aggregate ERCOT stats by fuel type for the dashboard."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT fuel_type,
+                       COUNT(*) AS project_count,
+                       SUM(capacity_mw) AS total_mw
+                FROM ercot_gen_queue
+                GROUP BY fuel_type
+                ORDER BY total_mw DESC
+            """)
+            by_fuel = cur.fetchall()
+
+            cur.execute("""
+                SELECT COUNT(*) AS total_projects,
+                       SUM(capacity_mw) AS total_mw
+                FROM ercot_gen_queue
+            """)
+            totals = cur.fetchone()
+
+            return {
+                "by_fuel": by_fuel,
+                "total_projects": totals["total_projects"],
+                "total_mw": float(totals["total_mw"]) if totals["total_mw"] else 0,
             }
 
 
