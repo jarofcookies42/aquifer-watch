@@ -1,0 +1,9 @@
+venv/
+data/
+__pycache__/
+*.pyc
+.git/
+.DS_Store
+.claude/
+*.json
+!package.json

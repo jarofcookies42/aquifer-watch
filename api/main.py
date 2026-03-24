@@ -19,10 +19,12 @@ from fastapi.responses import FileResponse
 # Database
 # ---------------------------------------------------------------------------
 
-DB_URL = os.environ.get(
+_raw_url = os.environ.get(
     "DATABASE_URL",
     "postgresql://postgres:dev@127.0.0.1:5433/wtx_intel",
 )
+# Railway/Supabase may use postgres:// which psycopg2 doesn't accept
+DB_URL = _raw_url.replace("postgres://", "postgresql://", 1)
 
 _pool = None
 

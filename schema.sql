@@ -7,7 +7,11 @@
 -- Extensions
 -- ============================================================
 CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS timescaledb;
+DO $$ BEGIN
+    CREATE EXTENSION IF NOT EXISTS timescaledb;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TimescaleDB not available, skipping (water_levels will use regular table)';
+END $$;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- fuzzy text search
 
 -- ============================================================
@@ -133,8 +137,12 @@ CREATE TABLE IF NOT EXISTS water_levels (
     ingested_at         TIMESTAMPTZ DEFAULT now()
 );
 
--- Convert to TimescaleDB hypertable (only if not already one)
-SELECT create_hypertable('water_levels', 'measured_at', if_not_exists => TRUE);
+-- Convert to TimescaleDB hypertable if available
+DO $$ BEGIN
+    PERFORM create_hypertable('water_levels', 'measured_at', if_not_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TimescaleDB not available, water_levels remains a regular table';
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_wl_well_time ON water_levels(well_id, measured_at DESC);
 
