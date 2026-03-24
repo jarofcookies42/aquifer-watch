@@ -23,6 +23,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 // Layer groups
 const sitesLayer = L.layerGroup().addTo(map);
 const wellsLayer = L.layerGroup().addTo(map);
+const ercotLayer = L.layerGroup().addTo(map);
 
 // Site marker icons
 const siteIcon = (status) => {
@@ -358,6 +359,43 @@ const FUEL_COLORS = {
     Other: '#6b7280',
 };
 
+async function loadErcotMapLayer() {
+    try {
+        const geojson = await fetchJSON('/api/ercot/geojson');
+
+        ercotLayer.clearLayers();
+
+        L.geoJSON(geojson, {
+            pointToLayer: (feature, latlng) => {
+                const fuel = feature.properties.fuel;
+                const mw = feature.properties.mw || 0;
+                const color = FUEL_COLORS[fuel] || FUEL_COLORS.Other;
+                const radius = Math.min(Math.max(Math.sqrt(mw) / 4, 4), 14);
+
+                return L.circleMarker(latlng, {
+                    radius: radius,
+                    fillColor: color,
+                    color: '#ffffff44',
+                    weight: 1,
+                    fillOpacity: 0.6,
+                });
+            },
+            onEachFeature: (feature, layer) => {
+                const p = feature.properties;
+                layer.bindPopup(`
+                    <strong>${p.name || p.inr}</strong><br>
+                    ${p.fuel} — ${p.mw.toLocaleString()} MW<br>
+                    ${p.county} County<br>
+                    Status: ${p.status}
+                `);
+            },
+        }).addTo(ercotLayer);
+    } catch (err) {
+        console.error('ERCOT map layer error:', err);
+    }
+}
+
+
 async function loadErcotSummary() {
     try {
         const data = await fetchJSON('/api/ercot/summary');
@@ -424,8 +462,15 @@ document.getElementById('calc-cooling').addEventListener('change', updateCalc);
     try {
         await loadDashboard();
         await loadSites();
-        await Promise.all([loadWells(null), loadErcotSummary()]);
+        await Promise.all([loadWells(null), loadErcotSummary(), loadErcotMapLayer()]);
         updateCalc();
+
+        // Layer toggle control
+        L.control.layers(null, {
+            'Ogallala Wells': wellsLayer,
+            'ERCOT Gen Queue': ercotLayer,
+            'DC Sites': sitesLayer,
+        }, { collapsed: false, position: 'bottomleft' }).addTo(map);
     } catch (err) {
         console.error('Failed to load:', err);
     }

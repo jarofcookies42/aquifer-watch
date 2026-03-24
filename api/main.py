@@ -186,6 +186,57 @@ def ercot_summary():
             }
 
 
+@app.get("/api/ercot/geojson")
+def ercot_geojson():
+    """ERCOT generation projects as GeoJSON, placed at county well centroids."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Use the centroid of wells in each county as a proxy location
+            # (ERCOT queue data doesn't include lat/lon)
+            cur.execute("""
+                SELECT e.inr_number, e.project_name, e.fuel_type,
+                       e.capacity_mw, e.county, e.status,
+                       AVG(w.latitude) AS lat, AVG(w.longitude) AS lon
+                FROM ercot_gen_queue e
+                LEFT JOIN wells w ON LOWER(w.county) = LOWER(e.county)
+                GROUP BY e.inr_number, e.project_name, e.fuel_type,
+                         e.capacity_mw, e.county, e.status
+                HAVING AVG(w.latitude) IS NOT NULL
+                ORDER BY e.capacity_mw DESC NULLS LAST
+            """)
+            rows = cur.fetchall()
+
+    # Jitter positions slightly so overlapping county projects don't stack
+    import hashlib
+    features = []
+    for r in rows:
+        # Deterministic jitter based on project ID
+        h = int(hashlib.md5(r["inr_number"].encode()).hexdigest()[:8], 16)
+        jitter_lat = ((h % 1000) - 500) / 50000.0
+        jitter_lon = (((h >> 10) % 1000) - 500) / 50000.0
+
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    float(r["lon"]) + jitter_lon,
+                    float(r["lat"]) + jitter_lat,
+                ],
+            },
+            "properties": {
+                "inr": r["inr_number"],
+                "name": r["project_name"],
+                "fuel": r["fuel_type"],
+                "mw": float(r["capacity_mw"]) if r["capacity_mw"] else 0,
+                "county": r["county"],
+                "status": r["status"],
+            },
+        })
+
+    return {"type": "FeatureCollection", "features": features}
+
+
 @app.get("/api/wells")
 def list_wells(
     site_id: Optional[int] = Query(None, description="Filter wells near a specific site"),

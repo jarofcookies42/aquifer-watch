@@ -1,6 +1,7 @@
 -- West Texas Water & Data Center Intelligence Dashboard
--- Database Schema v0.1 (MVP)
+-- Database Schema v0.2
 -- Requires: PostgreSQL 15+, PostGIS, TimescaleDB
+-- Safe to re-run: uses IF NOT EXISTS / ON CONFLICT throughout.
 
 -- ============================================================
 -- Extensions
@@ -10,30 +11,42 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- fuzzy text search
 
 -- ============================================================
--- Enums
+-- Enums (use DO blocks for idempotency)
 -- ============================================================
-CREATE TYPE site_status AS ENUM (
-    'rumored', 'filing_detected', 'permitted', 'under_construction',
-    'operational', 'paused', 'cancelled'
-);
+DO $$ BEGIN
+    CREATE TYPE site_status AS ENUM (
+        'rumored', 'filing_detected', 'permitted', 'under_construction',
+        'operational', 'paused', 'cancelled'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE data_source AS ENUM (
-    'twdb_gwdb', 'twdb_recorder', 'tceq_air', 'tceq_water',
-    'ercot_gen_gis', 'ercot_large_load', 'county_cad',
-    'news', 'manual'
-);
+DO $$ BEGIN
+    CREATE TYPE data_source AS ENUM (
+        'twdb_gwdb', 'twdb_recorder', 'tceq_air', 'tceq_water',
+        'ercot_gen_gis', 'ercot_large_load', 'county_cad',
+        'news', 'manual'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE permit_type AS ENUM (
-    'air_quality_nsr', 'air_quality_psd', 'air_quality_ghg',
-    'water_rights', 'water_quality', 'wastewater', 'other'
-);
+DO $$ BEGIN
+    CREATE TYPE permit_type AS ENUM (
+        'air_quality_nsr', 'air_quality_psd', 'air_quality_ghg',
+        'water_rights', 'water_quality', 'wastewater', 'other'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE alert_severity AS ENUM ('info', 'watch', 'critical');
+DO $$ BEGIN
+    CREATE TYPE alert_severity AS ENUM ('info', 'watch', 'critical');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================
 -- Core: Data center sites we're tracking
 -- ============================================================
-CREATE TABLE dc_sites (
+CREATE TABLE IF NOT EXISTS dc_sites (
     id              SERIAL PRIMARY KEY,
     name            TEXT NOT NULL,           -- e.g. "Galaxy Helios"
     project_code    TEXT UNIQUE,             -- e.g. "HELIOS", "MATADOR"
@@ -50,33 +63,45 @@ CREATE TABLE dc_sites (
     updated_at      TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_dc_sites_location ON dc_sites USING GIST(location);
-CREATE INDEX idx_dc_sites_county ON dc_sites(county);
-CREATE INDEX idx_dc_sites_status ON dc_sites(status);
+CREATE INDEX IF NOT EXISTS idx_dc_sites_location ON dc_sites USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_dc_sites_county ON dc_sites(county);
+CREATE INDEX IF NOT EXISTS idx_dc_sites_status ON dc_sites(status);
 
--- Seed the three known sites
-INSERT INTO dc_sites (name, project_code, operator, tenant, county, location, capacity_mw, status, first_detected) VALUES
+-- Seed all tracked sites (safe to re-run)
+INSERT INTO dc_sites (name, project_code, operator, tenant, county, location, capacity_mw, water_demand_gpd, status, first_detected, notes) VALUES
     ('Galaxy Helios', 'HELIOS', 'Galaxy Digital', 'CoreWeave',
      'Dickens', ST_SetSRID(ST_MakePoint(-100.78, 33.77), 4326),
-     1600, 'under_construction', '2022-01-01'),
+     1600, NULL, 'under_construction', '2022-01-01',
+     '$3.5B Phase 2 expansion (Helios 2/3/4). 1.6 GW approved by ERCOT.'),
     ('Fermi Project Matador', 'MATADOR', 'Fermi America', NULL,
      'Carson', ST_SetSRID(ST_MakePoint(-101.58, 35.33), 4326),
-     11000, 'permitted', '2025-08-01'),
+     11000, 5000000, 'permitted', '2025-08-01',
+     'MOU with Amarillo for 2.5M-10M gal/day (non-binding). Hybrid dry-wet cooling planned but full system not complete until 2034. Using midpoint estimate.'),
     ('Lubbock NE (Prospective)', 'LBK_NE', NULL, NULL,
      'Lubbock', ST_SetSRID(ST_MakePoint(-101.80, 33.58), 4326),
-     NULL, 'rumored', NULL);
+     NULL, NULL, 'rumored', NULL,
+     'Calvano Development / Texas Solarworks. 936 acres off NE Loop 289. Zoning rejected Jan 2026, may resubmit.'),
+    ('Outlaw Ventures', 'OUTLAW', 'Outlaw Ventures', NULL,
+     'Lubbock', ST_SetSRID(ST_MakePoint(-101.85, 33.75), 4326),
+     600, NULL, 'filing_detected', '2025-06-01',
+     '~20 min north of Lubbock off I-27. 600 MW capacity.'),
+    ('TeraWulf / Fluidstack', 'TERAWULF', 'TeraWulf', NULL,
+     'Lubbock', ST_SetSRID(ST_MakePoint(-101.82, 33.80), 4326),
+     NULL, NULL, 'rumored', '2025-09-01',
+     '~22 miles north of Lubbock. Partnership with Fluidstack for GPU hosting.')
+ON CONFLICT (project_code) DO NOTHING;
 
 -- ============================================================
 -- TWDB: Groundwater wells
 -- ============================================================
-CREATE TABLE wells (
+CREATE TABLE IF NOT EXISTS wells (
     id                  SERIAL PRIMARY KEY,
     state_well_number   TEXT UNIQUE NOT NULL,  -- TWDB identifier
     latitude            NUMERIC NOT NULL,
     longitude           NUMERIC NOT NULL,
     location            GEOMETRY(Point, 4326),
     county              TEXT,
-    aquifer_code        TEXT,                  -- e.g. "OGL" for Ogallala
+    aquifer_code        TEXT,                  -- e.g. "121OGLL" for Ogallala
     aquifer_name        TEXT,
     well_depth_ft       NUMERIC,
     well_type           TEXT,                  -- monitoring, public supply, etc.
@@ -89,15 +114,15 @@ CREATE TABLE wells (
     updated_at          TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_wells_location ON wells USING GIST(location);
-CREATE INDEX idx_wells_aquifer ON wells(aquifer_code);
-CREATE INDEX idx_wells_county ON wells(county);
-CREATE INDEX idx_wells_state_num ON wells(state_well_number);
+CREATE INDEX IF NOT EXISTS idx_wells_location ON wells USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_wells_aquifer ON wells(aquifer_code);
+CREATE INDEX IF NOT EXISTS idx_wells_county ON wells(county);
+CREATE INDEX IF NOT EXISTS idx_wells_state_num ON wells(state_well_number);
 
 -- ============================================================
 -- TWDB: Water level measurements (time-series)
 -- ============================================================
-CREATE TABLE water_levels (
+CREATE TABLE IF NOT EXISTS water_levels (
     well_id             INTEGER NOT NULL REFERENCES wells(id),
     measured_at         TIMESTAMPTZ NOT NULL,
     depth_to_water_ft   NUMERIC,               -- depth below land surface
@@ -108,15 +133,15 @@ CREATE TABLE water_levels (
     ingested_at         TIMESTAMPTZ DEFAULT now()
 );
 
--- Convert to TimescaleDB hypertable for efficient time-series queries
-SELECT create_hypertable('water_levels', 'measured_at');
+-- Convert to TimescaleDB hypertable (only if not already one)
+SELECT create_hypertable('water_levels', 'measured_at', if_not_exists => TRUE);
 
-CREATE INDEX idx_wl_well_time ON water_levels(well_id, measured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wl_well_time ON water_levels(well_id, measured_at DESC);
 
 -- ============================================================
 -- TWDB: Water quality samples
 -- ============================================================
-CREATE TABLE water_quality (
+CREATE TABLE IF NOT EXISTS water_quality (
     id                  SERIAL PRIMARY KEY,
     well_id             INTEGER NOT NULL REFERENCES wells(id),
     sampled_at          TIMESTAMPTZ NOT NULL,
@@ -133,12 +158,12 @@ CREATE TABLE water_quality (
     ingested_at         TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_wq_well_time ON water_quality(well_id, sampled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wq_well_time ON water_quality(well_id, sampled_at DESC);
 
 -- ============================================================
 -- ERCOT: Generation interconnection queue
 -- ============================================================
-CREATE TABLE ercot_gen_queue (
+CREATE TABLE IF NOT EXISTS ercot_gen_queue (
     id                  SERIAL PRIMARY KEY,
     inr_number          TEXT UNIQUE,           -- ERCOT interconnection request #
     project_name        TEXT,
@@ -156,14 +181,14 @@ CREATE TABLE ercot_gen_queue (
     updated_at          TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_ercot_county ON ercot_gen_queue(county);
-CREATE INDEX idx_ercot_fuel ON ercot_gen_queue(fuel_type);
-CREATE INDEX idx_ercot_status ON ercot_gen_queue(status);
+CREATE INDEX IF NOT EXISTS idx_ercot_county ON ercot_gen_queue(county);
+CREATE INDEX IF NOT EXISTS idx_ercot_fuel ON ercot_gen_queue(fuel_type);
+CREATE INDEX IF NOT EXISTS idx_ercot_status ON ercot_gen_queue(status);
 
 -- ============================================================
 -- ERCOT: Large load tracking (manually supplemented)
 -- ============================================================
-CREATE TABLE ercot_large_loads (
+CREATE TABLE IF NOT EXISTS ercot_large_loads (
     id                  SERIAL PRIMARY KEY,
     lli_number          TEXT UNIQUE,           -- LLI-### identifier
     entity_name         TEXT,
@@ -181,12 +206,12 @@ CREATE TABLE ercot_large_loads (
     updated_at          TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_ll_county ON ercot_large_loads(county);
+CREATE INDEX IF NOT EXISTS idx_ll_county ON ercot_large_loads(county);
 
 -- ============================================================
 -- TCEQ: Permits
 -- ============================================================
-CREATE TABLE tceq_permits (
+CREATE TABLE IF NOT EXISTS tceq_permits (
     id                  SERIAL PRIMARY KEY,
     regulated_entity_rn TEXT,                  -- TCEQ RN number
     customer_cn         TEXT,                  -- TCEQ CN number
@@ -206,14 +231,14 @@ CREATE TABLE tceq_permits (
     updated_at          TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_tceq_county ON tceq_permits(county);
-CREATE INDEX idx_tceq_rn ON tceq_permits(regulated_entity_rn);
-CREATE INDEX idx_tceq_type ON tceq_permits(permit_type);
+CREATE INDEX IF NOT EXISTS idx_tceq_county ON tceq_permits(county);
+CREATE INDEX IF NOT EXISTS idx_tceq_rn ON tceq_permits(regulated_entity_rn);
+CREATE INDEX IF NOT EXISTS idx_tceq_type ON tceq_permits(permit_type);
 
 -- ============================================================
 -- County: Property records
 -- ============================================================
-CREATE TABLE property_records (
+CREATE TABLE IF NOT EXISTS property_records (
     id                  SERIAL PRIMARY KEY,
     county              TEXT NOT NULL,
     parcel_id           TEXT,
@@ -234,14 +259,14 @@ CREATE TABLE property_records (
     updated_at          TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_prop_county ON property_records(county);
-CREATE INDEX idx_prop_owner ON property_records USING GIN(owner_name gin_trgm_ops);
-CREATE INDEX idx_prop_location ON property_records USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_prop_county ON property_records(county);
+CREATE INDEX IF NOT EXISTS idx_prop_owner ON property_records USING GIN(owner_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_prop_location ON property_records USING GIST(location);
 
 -- ============================================================
 -- Intelligence: Alerts & events
 -- ============================================================
-CREATE TABLE alerts (
+CREATE TABLE IF NOT EXISTS alerts (
     id                  SERIAL PRIMARY KEY,
     severity            alert_severity NOT NULL,
     title               TEXT NOT NULL,
@@ -255,14 +280,14 @@ CREATE TABLE alerts (
     source_record_table TEXT                   -- which table it came from
 );
 
-CREATE INDEX idx_alerts_time ON alerts(triggered_at DESC);
-CREATE INDEX idx_alerts_site ON alerts(dc_site_id);
-CREATE INDEX idx_alerts_sev ON alerts(severity);
+CREATE INDEX IF NOT EXISTS idx_alerts_time ON alerts(triggered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_site ON alerts(dc_site_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_sev ON alerts(severity);
 
 -- ============================================================
 -- Metadata: Ingestion runs
 -- ============================================================
-CREATE TABLE ingestion_log (
+CREATE TABLE IF NOT EXISTS ingestion_log (
     id              SERIAL PRIMARY KEY,
     source          data_source NOT NULL,
     started_at      TIMESTAMPTZ DEFAULT now(),
@@ -276,11 +301,11 @@ CREATE TABLE ingestion_log (
 );
 
 -- ============================================================
--- Convenience views
+-- Convenience views (CREATE OR REPLACE for idempotency)
 -- ============================================================
 
 -- Wells near tracked data center sites (within 25 miles)
-CREATE VIEW wells_near_sites AS
+CREATE OR REPLACE VIEW wells_near_sites AS
 SELECT
     w.id AS well_id,
     w.state_well_number,
@@ -297,7 +322,7 @@ WHERE ST_DWithin(w.location::geography, s.location::geography, 40234)  -- 25 mil
 ORDER BY s.id, distance_miles;
 
 -- Latest water level per well
-CREATE VIEW latest_water_levels AS
+CREATE OR REPLACE VIEW latest_water_levels AS
 SELECT DISTINCT ON (well_id)
     well_id,
     measured_at,
@@ -308,7 +333,7 @@ FROM water_levels
 ORDER BY well_id, measured_at DESC;
 
 -- Site intelligence summary
-CREATE VIEW site_dashboard AS
+CREATE OR REPLACE VIEW site_dashboard AS
 SELECT
     s.id,
     s.name,

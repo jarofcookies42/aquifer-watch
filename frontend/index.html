@@ -116,6 +116,15 @@
         .fuel-legend span { display: flex; align-items: center; gap: 4px; }
         .fuel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
+        .leaflet-control-layers {
+            background: #1e293b !important;
+            border: 1px solid #334155 !important;
+            border-radius: 8px !important;
+            color: #e2e8f0 !important;
+            font-size: 0.8rem !important;
+        }
+        .leaflet-control-layers label { color: #e2e8f0; margin-bottom: 2px; }
+
         .leaflet-popup-content-wrapper {
             background: #1e293b;
             color: #e2e8f0;
@@ -166,7 +175,7 @@
             </div>
             <div class="chart-section" id="chart-section">
                 <h2>Aquifer Level Trend</h2>
-                <div class="chart-subtitle">Avg. depth to water near site (modeled from TWDB regional data)</div>
+                <div class="chart-subtitle">Avg. depth to water near site (TWDB groundwater database measurements)</div>
                 <canvas id="wl-chart"></canvas>
             </div>
             <div class="ercot-panel">
