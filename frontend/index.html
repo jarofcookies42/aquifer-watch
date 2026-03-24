@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AquiferWatch — West Texas Water & Data Center Intelligence</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+
+        header {
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        header h1 { font-size: 1.25rem; color: #38bdf8; font-weight: 700; }
+        header h1 span { color: #94a3b8; font-weight: 400; }
+
+        .stats-bar {
+            display: flex;
+            gap: 24px;
+            font-size: 0.85rem;
+        }
+        .stat { text-align: center; }
+        .stat-value { font-size: 1.3rem; font-weight: 700; color: #38bdf8; }
+        .stat-label { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        .layout {
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+
+        #map {
+            flex: 1;
+            min-height: 400px;
+        }
+
+        .sidebar {
+            width: 380px;
+            background: #1e293b;
+            border-left: 1px solid #334155;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel { padding: 16px; border-bottom: 1px solid #334155; }
+        .panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+
+        .site-card {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .site-card:hover, .site-card.active { border-color: #38bdf8; }
+        .site-card h3 { font-size: 0.95rem; color: #f1f5f9; margin-bottom: 4px; }
+        .site-card .meta { font-size: 0.8rem; color: #94a3b8; display: flex; gap: 12px; flex-wrap: wrap; }
+        .site-card .meta span { white-space: nowrap; }
+
+        .status-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-rumored { background: #4b5563; color: #d1d5db; }
+        .status-permitted { background: #854d0e; color: #fde68a; }
+        .status-under_construction { background: #1e40af; color: #93c5fd; }
+        .status-operational { background: #166534; color: #86efac; }
+
+        .calc-section { padding: 16px; }
+        .calc-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+        .calc-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+        .calc-row label { font-size: 0.8rem; color: #94a3b8; min-width: 70px; }
+        .calc-row input, .calc-row select {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #475569;
+            color: #e2e8f0;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .calc-result {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+        }
+        .calc-result .big { font-size: 1.4rem; font-weight: 700; color: #f59e0b; }
+        .calc-result .detail { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+
+        .chart-section { padding: 16px; border-bottom: 1px solid #334155; display: none; }
+        .chart-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .chart-section .chart-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
+        #wl-chart { width: 100%; height: 180px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
+
+        .leaflet-popup-content-wrapper {
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .leaflet-popup-tip { background: #1e293b; }
+        .leaflet-popup-content { font-size: 0.85rem; line-height: 1.5; }
+        .leaflet-popup-content strong { color: #38bdf8; }
+
+        @media (max-width: 768px) {
+            .layout { flex-direction: column; height: auto; }
+            .sidebar { width: 100%; max-height: 50vh; }
+            #map { height: 50vh; }
+            .stats-bar { gap: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AquiferWatch <span>West Texas</span></h1>
+        <div class="stats-bar">
+            <div class="stat">
+                <div class="stat-value" id="stat-sites">-</div>
+                <div class="stat-label">Sites Tracked</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-wells">-</div>
+                <div class="stat-label">Ogallala Wells</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-counties">-</div>
+                <div class="stat-label">Counties</div>
+            </div>
+        </div>
+    </header>
+
+    <div class="layout">
+        <div id="map"></div>
+        <div class="sidebar">
+            <div class="panel">
+                <h2>Data Center Sites</h2>
+                <div id="site-list"></div>
+            </div>
+            <div class="chart-section" id="chart-section">
+                <h2>Aquifer Level Trend</h2>
+                <div class="chart-subtitle">Avg. depth to water near site (modeled from TWDB regional data)</div>
+                <canvas id="wl-chart"></canvas>
+            </div>
+            <div class="calc-section">
+                <h2>Water Impact Calculator</h2>
+                <div class="calc-row">
+                    <label>Capacity</label>
+                    <input type="number" id="calc-mw" placeholder="MW" value="500">
+                    <span style="color:#94a3b8;font-size:0.8rem">MW</span>
+                </div>
+                <div class="calc-row">
+                    <label>Cooling</label>
+                    <select id="calc-cooling">
+                        <option value="evaporative">Evaporative (wet tower)</option>
+                        <option value="hybrid">Hybrid (dry-wet)</option>
+                        <option value="air">Air-cooled</option>
+                    </select>
+                </div>
+                <div class="calc-result" id="calc-result">
+                    <div class="big" id="calc-gpd">-</div>
+                    <div class="detail" id="calc-detail"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
