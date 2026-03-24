@@ -1,73 +1,69 @@
-# West Texas Water & Data Center Intelligence Dashboard
+# AquiferWatch — West Texas Water & Data Center Intelligence
 
-## MVP Data Layer
+**Live:** https://accomplished-respect-production-29c4.up.railway.app
 
-### Quick Start
+A public-facing dashboard tracking water usage, aquifer levels, and data center development across West Texas. Brings transparency to the intersection of AI infrastructure growth and Ogallala Aquifer depletion.
+
+## What it does
+
+- Interactive map showing 5 data center sites (proposed through operational), 4,660 Ogallala wells, and 64 ERCOT generation queue projects
+- Aquifer level trend charts with real TWDB groundwater measurements (72,000+ records)
+- Water impact calculator: input MW capacity + cooling type, get estimated daily water consumption
+- ERCOT generation queue breakdown by fuel type (solar, wind, battery, gas)
+- Mobile-responsive — works on a phone in a council meeting
+
+## Tech stack
+
+- **Backend**: Python, FastAPI
+- **Database**: PostgreSQL + PostGIS (Supabase)
+- **Frontend**: Vanilla JS + Leaflet maps
+- **Data**: TWDB ArcGIS API, TWDB bulk groundwater downloads, ERCOT via gridstatus
+- **Deployment**: Railway (app) + Supabase (database)
+
+## Local development
 
 ```bash
-# 1. Set up PostgreSQL with PostGIS + TimescaleDB
-#    (Docker is easiest for local dev)
+# 1. Clone and set up
+git clone https://github.com/jarofcookies42/aquifer-watch.git
+cd aquifer-watch
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Start local PostgreSQL (Docker)
 docker run -d --name wtx-db \
-  -e POSTGRES_DB=wtx_intel \
-  -e POSTGRES_PASSWORD=dev \
-  -p 5432:5432 \
-  timescale/timescaledb-ha:pg16
+  -e POSTGRES_DB=wtx_intel -e POSTGRES_PASSWORD=dev \
+  -p 5433:5432 timescale/timescaledb-ha:pg16
 
-# 2. Install PostGIS in the database
-docker exec -it wtx-db psql -U postgres -d wtx_intel \
-  -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-
-# 3. Run schema migration
+# 3. Load schema
 docker exec -i wtx-db psql -U postgres -d wtx_intel < schema.sql
 
-# 4. Install Python dependencies
-pip install requests psycopg2-binary python-dateutil
+# 4. Run data pipelines
+export DATABASE_URL="postgresql://postgres:dev@127.0.0.1:5433/wtx_intel"
+python ingest_twdb.py                          # 4,660 Ogallala wells
+python ingest_twdb_water_levels.py             # 72,908 real measurements
+python ingest_ercot.py                         # 64 ERCOT generation projects
 
-# 5. Test the TWDB pipeline (dry run — no DB needed)
-python ingest_twdb.py --dry-run
-
-# 6. Run for real
-export DATABASE_URL="postgresql://postgres:dev@localhost:5432/wtx_intel"
-python ingest_twdb.py
+# 5. Start the dashboard
+uvicorn api.main:app --reload --port 8000
+# Open http://localhost:8000
 ```
 
-### Project Structure
+## Data sources
 
-```
-wtx-intel/
-├── schema.sql           # PostgreSQL + PostGIS + TimescaleDB schema
-├── ingest_twdb.py       # TWDB Ogallala well data ingestion
-├── README.md            # This file
-└── (future)
-    ├── ingest_ercot.py  # ERCOT generation queue via gridstatus
-    ├── scrape_tceq.py   # TCEQ Central Registry + air permits
-    ├── scrape_cad.py    # County appraisal district data
-    └── alerts.py        # Detection rules + notifications
-```
+| Source | Method | Status |
+|--------|--------|--------|
+| TWDB Groundwater Wells | ArcGIS REST API | Built |
+| TWDB Water Levels | Bulk download (pipe-delimited) | Built |
+| ERCOT Gen Queue | gridstatus Python lib | Built |
+| TCEQ Air Permits | Central Registry scrape | Planned |
+| County CAD | Web scrape | Planned |
 
-### Data Sources
-
-| Source | Method | Frequency | Status |
-|--------|--------|-----------|--------|
-| TWDB Groundwater (Ogallala) | ArcGIS REST API | Daily | ✅ Built |
-| ERCOT Gen Queue | gridstatus Python lib | Monthly | 🔜 Next |
-| ERCOT Large Load | PDF scraping + manual | Monthly | 🔜 Planned |
-| TCEQ Air Permits | Central Registry scrape | Weekly | 🔜 Planned |
-| TCEQ Water Rights | File download | Monthly | 🔜 Planned |
-| County CAD | Web scrape + bulk | Monthly | 🔜 Planned |
-
-### Tracked Sites
+## Tracked sites
 
 | Code | Name | County | Capacity | Status |
 |------|------|--------|----------|--------|
 | HELIOS | Galaxy Helios | Dickens | 1.6 GW | Under construction |
 | MATADOR | Fermi Project Matador | Carson | 11 GW | Permitted |
 | LBK_NE | Lubbock NE (Prospective) | Lubbock | TBD | Rumored |
-
-### Key API Endpoints
-
-- **TWDB FeatureServer**: `services.twdb.texas.gov/arcgis/rest/services/Public/TWDB_Groundwater_database/FeatureServer/0/query`
-- **TWDB Bulk Download**: `txwaterdatahub.org/dataset/groundwater-database`
-- **TCEQ Central Registry**: `www15.tceq.texas.gov/crpub/`
-- **ERCOT GIS Reports**: `ercot.com/gridinfo/resource`
-- **gridstatus docs**: `opensource.gridstatus.io`
+| OUTLAW | Outlaw Ventures | Lubbock | 600 MW | Filing detected |
+| TERAWULF | TeraWulf / Fluidstack | Lubbock | TBD | Rumored |
