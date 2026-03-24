@@ -273,7 +273,7 @@ def list_wells(
 @app.get("/api/wells/geojson")
 def wells_geojson(
     site_id: Optional[int] = Query(None),
-    limit: int = Query(2000, le=5000),
+    limit: int = Query(5000, le=10000),
 ):
     """Wells as GeoJSON for direct map rendering."""
     with get_conn() as conn:

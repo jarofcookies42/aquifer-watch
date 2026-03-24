@@ -157,7 +157,7 @@ async function loadWells(siteId) {
 
     const url = siteId != null
         ? `/api/wells/geojson?site_id=${siteId}&limit=2000`
-        : '/api/wells/geojson?limit=2000';
+        : '/api/wells/geojson?limit=5000';
 
     const geojson = await fetchJSON(url);
 
