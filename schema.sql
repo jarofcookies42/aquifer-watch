@@ -735,6 +735,8 @@ SELECT DISTINCT ON (station_id)
     wind_direction_deg,
     wind_gust_mph,
     precip_last_24hr_in,
+    visibility_miles,
+    pressure_mb,
     conditions
 FROM weather_observations
 ORDER BY station_id, observed_at DESC;
