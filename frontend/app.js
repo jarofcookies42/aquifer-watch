@@ -2250,7 +2250,7 @@ function setText(id, val) {
 
         await loadDashboard();
         await loadSites();
-        await Promise.all([
+        await Promise.allSettled([
             loadWells(null),
             loadErcotSummary(),
             loadErcotMapLayer(),
@@ -2265,34 +2265,34 @@ function setText(id, val) {
         ]);
         updateCalc();
 
-        // Layer toggle control
-        layerControl = L.control.layers(null, {
-            'Drought Overlay': droughtLayer,
-            'Ogallala Wells': wellsLayer,
-            'ERCOT Gen Queue': ercotLayer,
-            'DC Sites': sitesLayer,
-            'Reservoirs': reservoirsLayer,
-        }, { collapsed: false, position: 'bottomleft' }).addTo(map);
-
-        // Map coverage note
-        const coverageNote = L.control({ position: 'bottomleft' });
-        coverageNote.onAdd = function () {
-            const div = L.DomUtil.create('div', 'map-coverage-note');
-            div.innerHTML = 'Wells shown within 25mi of tracked sites';
-            div.style.cssText = 'color:#94a3b8;font-size:10px;padding:2px 6px;background:rgba(15,23,42,0.7);border-radius:3px;margin-top:4px;';
-            return div;
-        };
-        coverageNote.addTo(map);
-
-        // View tab click handlers
-        document.querySelectorAll('.view-tab').forEach(btn => {
-            btn.addEventListener('click', () => switchView(btn.dataset.view));
-        });
-
-        // City selector
-        setupCitySelector();
-
     } catch (err) {
         console.error('Failed to load:', err);
     }
+
+    // UI setup — must run regardless of data load success
+    layerControl = L.control.layers(null, {
+        'Drought Overlay': droughtLayer,
+        'Ogallala Wells': wellsLayer,
+        'ERCOT Gen Queue': ercotLayer,
+        'DC Sites': sitesLayer,
+        'Reservoirs': reservoirsLayer,
+    }, { collapsed: false, position: 'bottomleft' }).addTo(map);
+
+    // Map coverage note
+    const coverageNote = L.control({ position: 'bottomleft' });
+    coverageNote.onAdd = function () {
+        const div = L.DomUtil.create('div', 'map-coverage-note');
+        div.innerHTML = 'Wells shown within 25mi of tracked sites';
+        div.style.cssText = 'color:#94a3b8;font-size:10px;padding:2px 6px;background:rgba(15,23,42,0.7);border-radius:3px;margin-top:4px;';
+        return div;
+    };
+    coverageNote.addTo(map);
+
+    // View tab click handlers
+    document.querySelectorAll('.view-tab').forEach(btn => {
+        btn.addEventListener('click', () => switchView(btn.dataset.view));
+    });
+
+    // City selector
+    setupCitySelector();
 })();
