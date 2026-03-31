@@ -309,6 +309,73 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
 );
 
 -- ============================================================
+-- Phase 5: Water usage & agriculture
+-- ============================================================
+
+-- Extend data_source enum
+DO $$ BEGIN ALTER TYPE data_source ADD VALUE IF NOT EXISTS 'twdb_wud'; EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN ALTER TYPE data_source ADD VALUE IF NOT EXISTS 'usda_nass'; EXCEPTION WHEN others THEN NULL; END $$;
+
+-- Water use category
+DO $$ BEGIN
+    CREATE TYPE water_use_category AS ENUM (
+        'municipal', 'irrigation', 'manufacturing', 'mining', 'livestock', 'steam_electric'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Water source type
+DO $$ BEGIN
+    CREATE TYPE water_source_type AS ENUM ('groundwater', 'surface_water', 'total');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- TWDB Water Use Survey estimates (county × year × category × source_type)
+CREATE TABLE IF NOT EXISTS water_usage (
+    id              SERIAL PRIMARY KEY,
+    county          TEXT NOT NULL,
+    county_fips     TEXT,
+    year            INTEGER NOT NULL,
+    category        water_use_category NOT NULL,
+    source_type     water_source_type NOT NULL,
+    volume_acre_ft  NUMERIC,             -- acre-feet
+    aquifer_name    TEXT,                -- groundwater source name where known
+    notes           TEXT,
+    raw_json        JSONB,
+    ingested_at     TIMESTAMPTZ DEFAULT now(),
+    updated_at      TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(county_fips, year, category, source_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wu_county   ON water_usage(county);
+CREATE INDEX IF NOT EXISTS idx_wu_year     ON water_usage(year);
+CREATE INDEX IF NOT EXISTS idx_wu_category ON water_usage(category);
+CREATE INDEX IF NOT EXISTS idx_wu_fips     ON water_usage(county_fips);
+
+-- USDA NASS irrigated acreage and crop production (county × year × crop)
+CREATE TABLE IF NOT EXISTS agricultural_data (
+    id               SERIAL PRIMARY KEY,
+    county           TEXT NOT NULL,
+    county_fips      TEXT,
+    year             INTEGER NOT NULL,
+    crop_type        TEXT NOT NULL,      -- e.g. COTTON, WHEAT, CORN, SORGHUM
+    acres_irrigated  NUMERIC,            -- irrigated harvested acres
+    acres_harvested  NUMERIC,            -- total harvested acres
+    production_value NUMERIC,            -- e.g. bushels, bales, cwt
+    production_units TEXT,               -- e.g. "BU", "480 LB BALES"
+    source           TEXT,               -- SURVEY or CENSUS
+    raw_json         JSONB,
+    ingested_at      TIMESTAMPTZ DEFAULT now(),
+    updated_at       TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(county_fips, year, crop_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ag_county ON agricultural_data(county);
+CREATE INDEX IF NOT EXISTS idx_ag_year   ON agricultural_data(year);
+CREATE INDEX IF NOT EXISTS idx_ag_crop   ON agricultural_data(crop_type);
+CREATE INDEX IF NOT EXISTS idx_ag_fips   ON agricultural_data(county_fips);
+
+-- ============================================================
 -- Convenience views (CREATE OR REPLACE for idempotency)
 -- ============================================================
 
@@ -353,3 +420,48 @@ SELECT
     (SELECT COUNT(*) FROM tceq_permits p WHERE p.dc_site_id = s.id) AS permit_count,
     (SELECT COUNT(*) FROM alerts a WHERE a.dc_site_id = s.id AND a.acknowledged_at IS NULL) AS open_alerts
 FROM dc_sites s;
+
+-- Water use totals by county and year (pivoted by category, total source only)
+CREATE OR REPLACE VIEW water_usage_by_county AS
+SELECT
+    county,
+    county_fips,
+    year,
+    COALESCE(SUM(CASE WHEN category = 'irrigation'     THEN volume_acre_ft END), 0) AS irrigation_af,
+    COALESCE(SUM(CASE WHEN category = 'municipal'      THEN volume_acre_ft END), 0) AS municipal_af,
+    COALESCE(SUM(CASE WHEN category = 'manufacturing'  THEN volume_acre_ft END), 0) AS manufacturing_af,
+    COALESCE(SUM(CASE WHEN category = 'mining'         THEN volume_acre_ft END), 0) AS mining_af,
+    COALESCE(SUM(CASE WHEN category = 'livestock'      THEN volume_acre_ft END), 0) AS livestock_af,
+    COALESCE(SUM(CASE WHEN category = 'steam_electric' THEN volume_acre_ft END), 0) AS steam_electric_af,
+    COALESCE(SUM(volume_acre_ft), 0) AS total_af
+FROM water_usage
+WHERE source_type = 'total'
+GROUP BY county, county_fips, year;
+
+-- Regional water use totals by year (all target counties combined)
+CREATE OR REPLACE VIEW regional_water_usage AS
+SELECT
+    year,
+    COALESCE(SUM(CASE WHEN category = 'irrigation'     THEN volume_acre_ft END), 0) AS irrigation_af,
+    COALESCE(SUM(CASE WHEN category = 'municipal'      THEN volume_acre_ft END), 0) AS municipal_af,
+    COALESCE(SUM(CASE WHEN category = 'manufacturing'  THEN volume_acre_ft END), 0) AS manufacturing_af,
+    COALESCE(SUM(CASE WHEN category = 'mining'         THEN volume_acre_ft END), 0) AS mining_af,
+    COALESCE(SUM(CASE WHEN category = 'livestock'      THEN volume_acre_ft END), 0) AS livestock_af,
+    COALESCE(SUM(CASE WHEN category = 'steam_electric' THEN volume_acre_ft END), 0) AS steam_electric_af,
+    COALESCE(SUM(volume_acre_ft), 0) AS total_af
+FROM water_usage
+WHERE source_type = 'total'
+GROUP BY year
+ORDER BY year;
+
+-- Agricultural irrigated acreage summary by county and year
+CREATE OR REPLACE VIEW ag_water_demand AS
+SELECT
+    county,
+    county_fips,
+    year,
+    SUM(acres_irrigated) AS total_irrigated_acres,
+    SUM(acres_harvested) AS total_harvested_acres,
+    COUNT(DISTINCT crop_type) AS crop_types
+FROM agricultural_data
+GROUP BY county, county_fips, year;

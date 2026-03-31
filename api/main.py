@@ -365,6 +365,215 @@ def water_levels(
     ]
 
 
+@app.get("/api/water-usage")
+def water_usage(
+    county: Optional[str] = Query(None, description="Filter by county name"),
+    category: Optional[str] = Query(None, description="Filter by use category (irrigation, municipal, etc.)"),
+    source_type: Optional[str] = Query(None, description="groundwater, surface_water, or total"),
+    year_min: Optional[int] = Query(None),
+    year_max: Optional[int] = Query(None),
+    limit: int = Query(500, le=5000),
+):
+    """Water use estimates from TWDB Water Use Survey, with optional filters."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            conditions = ["1=1"]
+            params: list = []
+
+            if county:
+                conditions.append("LOWER(county) = LOWER(%s)")
+                params.append(county)
+            if category:
+                conditions.append("category::text = %s")
+                params.append(category)
+            if source_type:
+                conditions.append("source_type::text = %s")
+                params.append(source_type)
+            if year_min:
+                conditions.append("year >= %s")
+                params.append(year_min)
+            if year_max:
+                conditions.append("year <= %s")
+                params.append(year_max)
+
+            params.append(limit)
+            cur.execute(f"""
+                SELECT county, county_fips, year, category::text, source_type::text,
+                       volume_acre_ft, aquifer_name
+                FROM water_usage
+                WHERE {' AND '.join(conditions)}
+                ORDER BY year, county, category
+                LIMIT %s
+            """, params)
+            return cur.fetchall()
+
+
+@app.get("/api/water-usage/summary")
+def water_usage_summary(
+    source_type: str = Query("total", description="groundwater, surface_water, or total"),
+):
+    """Aggregated water use by category across all target counties (most recent 5 years)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT category::text,
+                       SUM(volume_acre_ft) AS total_af,
+                       COUNT(DISTINCT county) AS counties,
+                       MAX(year) AS latest_year
+                FROM water_usage
+                WHERE source_type::text = %s
+                  AND year >= (SELECT MAX(year) - 4 FROM water_usage)
+                GROUP BY category
+                ORDER BY total_af DESC NULLS LAST
+            """, (source_type,))
+            by_category = cur.fetchall()
+
+            cur.execute("""
+                SELECT MAX(year) AS latest_year, MIN(year) AS earliest_year,
+                       COUNT(DISTINCT county) AS counties,
+                       COUNT(DISTINCT year) AS years_available
+                FROM water_usage
+                WHERE source_type::text = %s
+            """, (source_type,))
+            meta = cur.fetchone()
+
+            return {
+                "by_category": by_category,
+                "meta": meta,
+            }
+
+
+@app.get("/api/water-usage/trends")
+def water_usage_trends(
+    source_type: str = Query("total"),
+    category: Optional[str] = Query(None, description="Filter to a specific category"),
+):
+    """Year-over-year regional water use totals for trend analysis."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if category:
+                cur.execute("""
+                    SELECT year,
+                           category::text,
+                           SUM(volume_acre_ft) AS total_af
+                    FROM water_usage
+                    WHERE source_type::text = %s
+                      AND category::text = %s
+                    GROUP BY year, category
+                    ORDER BY year
+                """, (source_type, category))
+            else:
+                cur.execute("""
+                    SELECT year,
+                           SUM(CASE WHEN category = 'irrigation'     THEN volume_acre_ft ELSE 0 END) AS irrigation_af,
+                           SUM(CASE WHEN category = 'municipal'      THEN volume_acre_ft ELSE 0 END) AS municipal_af,
+                           SUM(CASE WHEN category = 'manufacturing'  THEN volume_acre_ft ELSE 0 END) AS manufacturing_af,
+                           SUM(CASE WHEN category = 'mining'         THEN volume_acre_ft ELSE 0 END) AS mining_af,
+                           SUM(CASE WHEN category = 'livestock'      THEN volume_acre_ft ELSE 0 END) AS livestock_af,
+                           SUM(CASE WHEN category = 'steam_electric' THEN volume_acre_ft ELSE 0 END) AS steam_electric_af,
+                           SUM(volume_acre_ft) AS total_af
+                    FROM water_usage
+                    WHERE source_type::text = %s
+                    GROUP BY year
+                    ORDER BY year
+                """, (source_type,))
+
+            rows = cur.fetchall()
+
+    if not rows:
+        return []
+
+    result = []
+    for row in rows:
+        r = dict(row)
+        # Round all AF values to integers
+        for k, v in r.items():
+            if k.endswith("_af") and v is not None:
+                r[k] = round(float(v))
+        result.append(r)
+    return result
+
+
+@app.get("/api/agriculture")
+def agriculture(
+    county: Optional[str] = Query(None),
+    crop: Optional[str] = Query(None, description="Crop type (COTTON, WHEAT, CORN, etc.)"),
+    year_min: Optional[int] = Query(None),
+    year_max: Optional[int] = Query(None),
+    limit: int = Query(500, le=5000),
+):
+    """USDA NASS irrigated acreage data with optional filters."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            conditions = ["1=1"]
+            params: list = []
+
+            if county:
+                conditions.append("LOWER(county) = LOWER(%s)")
+                params.append(county)
+            if crop:
+                conditions.append("UPPER(crop_type) = UPPER(%s)")
+                params.append(crop)
+            if year_min:
+                conditions.append("year >= %s")
+                params.append(year_min)
+            if year_max:
+                conditions.append("year <= %s")
+                params.append(year_max)
+
+            params.append(limit)
+            cur.execute(f"""
+                SELECT county, county_fips, year, crop_type,
+                       acres_irrigated, acres_harvested, source
+                FROM agricultural_data
+                WHERE {' AND '.join(conditions)}
+                ORDER BY year, county, crop_type
+                LIMIT %s
+            """, params)
+            return cur.fetchall()
+
+
+@app.get("/api/agriculture/summary")
+def agriculture_summary():
+    """Regional irrigated acreage overview — totals by crop and trend by year."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT crop_type,
+                       SUM(acres_irrigated) AS total_acres,
+                       COUNT(DISTINCT county) AS counties,
+                       MAX(year) AS latest_year
+                FROM agricultural_data
+                WHERE year >= (SELECT MAX(year) - 4 FROM agricultural_data)
+                GROUP BY crop_type
+                ORDER BY total_acres DESC NULLS LAST
+            """)
+            by_crop = cur.fetchall()
+
+            cur.execute("""
+                SELECT year,
+                       SUM(acres_irrigated) AS total_irrigated_acres,
+                       COUNT(DISTINCT county) AS counties,
+                       COUNT(DISTINCT crop_type) AS crops
+                FROM agricultural_data
+                GROUP BY year
+                ORDER BY year
+            """)
+            trend = cur.fetchall()
+
+            result_trend = []
+            for row in trend:
+                r = dict(row)
+                if r.get("total_irrigated_acres") is not None:
+                    r["total_irrigated_acres"] = round(float(r["total_irrigated_acres"]))
+                result_trend.append(r)
+
+            return {
+                "by_crop": by_crop,
+                "trend": result_trend,
+            }
+
+
 @app.get("/api/water-impact")
 def water_impact(
     capacity_mw: float = Query(..., description="Data center capacity in MW"),

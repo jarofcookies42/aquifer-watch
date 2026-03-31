@@ -116,6 +116,43 @@
         .fuel-legend span { display: flex; align-items: center; gap: 4px; }
         .fuel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
+        /* Water budget chart section */
+        .water-budget-section {
+            padding: 16px;
+            border-bottom: 1px solid #334155;
+        }
+        .water-budget-section h2 {
+            font-size: 0.9rem; color: #94a3b8;
+            text-transform: uppercase; letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+        .section-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
+        #wb-chart { width: 100%; height: 180px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
+        .wb-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 0.72rem; color: #94a3b8; }
+        .wb-legend span { display: flex; align-items: center; gap: 4px; }
+        .wb-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
+
+        /* County water breakdown */
+        .county-water-section { padding: 16px; border-bottom: 1px solid #334155; }
+        .county-water-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+        .county-bar-wrap { margin-bottom: 6px; }
+        .county-bar-label { font-size: 0.75rem; color: #94a3b8; display: flex; justify-content: space-between; margin-bottom: 2px; }
+        .county-bar-track { background: #0f172a; border-radius: 3px; height: 8px; overflow: hidden; }
+        .county-bar-fill { height: 100%; border-radius: 3px; background: #38bdf8; transition: width 0.4s; }
+
+        /* Agriculture section */
+        .ag-section { padding: 16px; border-bottom: 1px solid #334155; }
+        .ag-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        #ag-chart { width: 100%; height: 160px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
+        .ag-crop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+        .ag-crop-card {
+            background: #0f172a; border: 1px solid #334155;
+            border-radius: 6px; padding: 8px;
+        }
+        .ag-crop-card .crop-name { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+        .ag-crop-card .crop-acres { font-size: 1.05rem; font-weight: 700; color: #4ade80; }
+        .ag-crop-card .crop-label { font-size: 0.65rem; color: #64748b; }
+
         .leaflet-control-layers {
             background: #1e293b !important;
             border: 1px solid #334155 !important;
@@ -178,6 +215,28 @@
                 <div class="chart-subtitle">Avg. depth to water near site (TWDB groundwater database measurements)</div>
                 <canvas id="wl-chart"></canvas>
             </div>
+            <!-- Water budget stacked area chart -->
+            <div class="water-budget-section" id="water-budget-section">
+                <h2>Regional Water Budget</h2>
+                <div class="section-subtitle">Annual water use by sector — West Texas High Plains (TWDB Water Use Survey)</div>
+                <canvas id="wb-chart"></canvas>
+                <div class="wb-legend" id="wb-legend"></div>
+            </div>
+
+            <!-- County-level breakdown -->
+            <div class="county-water-section" id="county-water-section" style="display:none">
+                <h2>County Water Use Breakdown</h2>
+                <div id="county-bars"></div>
+            </div>
+
+            <!-- Agricultural irrigated acreage -->
+            <div class="ag-section">
+                <h2>Irrigated Agriculture</h2>
+                <div class="section-subtitle">USDA NASS irrigated acreage — Ogallala region</div>
+                <canvas id="ag-chart"></canvas>
+                <div class="ag-crop-grid" id="ag-crop-grid"></div>
+            </div>
+
             <div class="ercot-panel">
                 <h2>ERCOT Generation Queue</h2>
                 <div class="fuel-bar" id="fuel-bar"></div>
