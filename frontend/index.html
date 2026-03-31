@@ -9,38 +9,73 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
 
+        /* ----------------------------------------------------------------
+           Header
+        ---------------------------------------------------------------- */
         header {
             background: #1e293b;
             border-bottom: 1px solid #334155;
-            padding: 12px 20px;
+            padding: 10px 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-wrap: wrap;
-            gap: 12px;
+            gap: 10px;
         }
-        header h1 { font-size: 1.25rem; color: #38bdf8; font-weight: 700; }
+        .header-left { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        header h1 { font-size: 1.2rem; color: #38bdf8; font-weight: 700; white-space: nowrap; }
         header h1 span { color: #94a3b8; font-weight: 400; }
 
+        /* View switcher tabs */
+        .view-tabs {
+            display: flex;
+            gap: 4px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .view-tabs::-webkit-scrollbar { display: none; }
+        .view-tab {
+            padding: 5px 12px;
+            border-radius: 6px;
+            border: 1px solid #334155;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 0.78rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+        .view-tab:hover { border-color: #38bdf8; color: #38bdf8; }
+        .view-tab.active {
+            background: #38bdf8;
+            border-color: #38bdf8;
+            color: #0f172a;
+            font-weight: 700;
+        }
+        .view-tab .tab-icon { margin-right: 4px; }
+
+        /* Stats bar */
         .stats-bar {
             display: flex;
-            gap: 24px;
+            gap: 20px;
             font-size: 0.85rem;
         }
         .stat { text-align: center; }
-        .stat-value { font-size: 1.3rem; font-weight: 700; color: #38bdf8; }
-        .stat-label { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-value { font-size: 1.2rem; font-weight: 700; color: #38bdf8; }
+        .stat-label { color: #94a3b8; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
 
+        /* ----------------------------------------------------------------
+           Layout
+        ---------------------------------------------------------------- */
         .layout {
             display: flex;
             height: calc(100vh - 60px);
         }
-
         #map {
             flex: 1;
             min-height: 400px;
         }
-
         .sidebar {
             width: 380px;
             background: #1e293b;
@@ -50,9 +85,34 @@
             flex-direction: column;
         }
 
+        /* ----------------------------------------------------------------
+           Shared panel styles
+        ---------------------------------------------------------------- */
         .panel { padding: 16px; border-bottom: 1px solid #334155; }
-        .panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+        .panel h2 {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+        }
+        .panel h2 .panel-badge {
+            display: inline-block;
+            font-size: 0.65rem;
+            padding: 1px 6px;
+            border-radius: 8px;
+            background: #334155;
+            color: #94a3b8;
+            margin-left: 6px;
+            text-transform: none;
+            letter-spacing: 0;
+            font-weight: 400;
+            vertical-align: middle;
+        }
 
+        /* ----------------------------------------------------------------
+           Site cards (Full + Policy sidebar)
+        ---------------------------------------------------------------- */
         .site-card {
             background: #0f172a;
             border: 1px solid #334155;
@@ -63,27 +123,52 @@
             transition: border-color 0.15s;
         }
         .site-card:hover, .site-card.active { border-color: #38bdf8; }
-        .site-card h3 { font-size: 0.95rem; color: #f1f5f9; margin-bottom: 4px; }
-        .site-card .meta { font-size: 0.8rem; color: #94a3b8; display: flex; gap: 12px; flex-wrap: wrap; }
+        .site-card h3 { font-size: 0.9rem; color: #f1f5f9; margin-bottom: 4px; }
+        .site-card .meta { font-size: 0.78rem; color: #94a3b8; display: flex; gap: 10px; flex-wrap: wrap; }
         .site-card .meta span { white-space: nowrap; }
 
         .status-badge {
             display: inline-block;
-            font-size: 0.7rem;
-            padding: 2px 8px;
+            font-size: 0.65rem;
+            padding: 1px 7px;
             border-radius: 10px;
             font-weight: 600;
             text-transform: uppercase;
         }
         .status-rumored { background: #4b5563; color: #d1d5db; }
+        .status-filing_detected { background: #4c1d95; color: #c4b5fd; }
         .status-permitted { background: #854d0e; color: #fde68a; }
         .status-under_construction { background: #1e40af; color: #93c5fd; }
         .status-operational { background: #166534; color: #86efac; }
+        .status-paused { background: #7f1d1d; color: #fca5a5; }
+        .status-cancelled { background: #374151; color: #9ca3af; }
 
+        /* ----------------------------------------------------------------
+           Chart (Full view)
+        ---------------------------------------------------------------- */
+        .chart-section { padding: 16px; border-bottom: 1px solid #334155; display: none; }
+        .chart-section h2 { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .chart-section .chart-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
+        #wl-chart { width: 100%; height: 180px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
+
+        /* ----------------------------------------------------------------
+           ERCOT panel (Full + Industry)
+        ---------------------------------------------------------------- */
+        .ercot-panel { padding: 16px; border-bottom: 1px solid #334155; }
+        .ercot-panel h2 { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+        .fuel-bar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+        .fuel-bar div { display: flex; align-items: center; justify-content: center; font-size: 0.62rem; font-weight: 600; color: #fff; min-width: 24px; }
+        .fuel-legend { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.72rem; color: #94a3b8; }
+        .fuel-legend span { display: flex; align-items: center; gap: 4px; }
+        .fuel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+        /* ----------------------------------------------------------------
+           Calculator (Full + Public)
+        ---------------------------------------------------------------- */
         .calc-section { padding: 16px; }
-        .calc-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+        .calc-section h2 { font-size: 0.85rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
         .calc-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
-        .calc-row label { font-size: 0.8rem; color: #94a3b8; min-width: 70px; }
+        .calc-row label { font-size: 0.78rem; color: #94a3b8; min-width: 70px; }
         .calc-row input, .calc-row select {
             flex: 1;
             background: #0f172a;
@@ -91,7 +176,8 @@
             color: #e2e8f0;
             padding: 6px 10px;
             border-radius: 6px;
-            font-size: 0.85rem;
+            font-size: 0.82rem;
+            font-family: inherit;
         }
         .calc-result {
             background: #0f172a;
@@ -100,31 +186,301 @@
             padding: 12px;
             margin-top: 8px;
         }
-        .calc-result .big { font-size: 1.4rem; font-weight: 700; color: #f59e0b; }
-        .calc-result .detail { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+        .calc-result .big { font-size: 1.3rem; font-weight: 700; color: #f59e0b; }
+        .calc-result .detail { font-size: 0.78rem; color: #94a3b8; margin-top: 4px; }
 
-        .chart-section { padding: 16px; border-bottom: 1px solid #334155; display: none; }
-        .chart-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
-        .chart-section .chart-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
-        #wl-chart { width: 100%; height: 180px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
+        /* ----------------------------------------------------------------
+           Big metric grid (Policy view)
+        ---------------------------------------------------------------- */
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .metric-card {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 14px 10px;
+            text-align: center;
+        }
+        .metric-card .metric-val {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #f1f5f9;
+            line-height: 1.1;
+        }
+        .metric-card .metric-val.ok { color: #22c55e; }
+        .metric-card .metric-val.warn { color: #f59e0b; }
+        .metric-card .metric-val.danger { color: #ef4444; }
+        .metric-card .metric-label {
+            font-size: 0.65rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-top: 5px;
+            line-height: 1.3;
+        }
+        .metric-card-wide {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 14px 12px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+        .metric-card-wide .metric-val {
+            font-size: 1.7rem;
+            font-weight: 800;
+            color: #f59e0b;
+            white-space: nowrap;
+        }
+        .metric-card-wide .metric-desc { font-size: 0.78rem; color: #94a3b8; line-height: 1.4; }
+        .metric-card-wide .metric-desc strong { color: #e2e8f0; display: block; margin-bottom: 2px; }
 
-        .ercot-panel { padding: 16px; border-bottom: 1px solid #334155; }
-        .ercot-panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
-        .fuel-bar { display: flex; height: 24px; border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
-        .fuel-bar div { display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 600; color: #fff; min-width: 30px; }
-        .fuel-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.75rem; color: #94a3b8; }
-        .fuel-legend span { display: flex; align-items: center; gap: 4px; }
-        .fuel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        /* Pipeline status table */
+        .pipeline-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        .pipeline-table th {
+            color: #64748b;
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 4px 6px;
+            text-align: left;
+            border-bottom: 1px solid #334155;
+        }
+        .pipeline-table td {
+            padding: 7px 6px;
+            border-bottom: 1px solid #1e293b;
+            color: #cbd5e1;
+            vertical-align: middle;
+        }
+        .pipeline-table tr:last-child td { border-bottom: none; }
 
+        /* Placeholder notice for missing data */
+        .placeholder-notice {
+            background: #1e293b;
+            border: 1px dashed #334155;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 8px;
+        }
+        .placeholder-notice strong { color: #94a3b8; display: block; margin-bottom: 2px; }
+
+        /* ----------------------------------------------------------------
+           Industry view
+        ---------------------------------------------------------------- */
+        .avail-score-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 0;
+            border-bottom: 1px solid #1e293b;
+            font-size: 0.8rem;
+        }
+        .avail-score-row:last-child { border-bottom: none; }
+        .avail-county { color: #cbd5e1; min-width: 90px; }
+        .avail-depth { color: #64748b; font-size: 0.72rem; min-width: 60px; text-align: right; }
+        .avail-bar-wrap { flex: 1; }
+        .avail-bar {
+            height: 7px;
+            background: #0f172a;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .avail-fill {
+            height: 100%;
+            border-radius: 4px;
+        }
+        .avail-fill.high { background: #22c55e; }
+        .avail-fill.medium { background: #f59e0b; }
+        .avail-fill.low { background: #ef4444; }
+        .avail-num {
+            font-size: 0.72rem;
+            font-weight: 700;
+            min-width: 28px;
+            text-align: right;
+        }
+        .avail-num.high { color: #22c55e; }
+        .avail-num.medium { color: #f59e0b; }
+        .avail-num.low { color: #ef4444; }
+
+        /* Site comparison table */
+        .compare-wrap {
+            overflow-x: auto;
+            margin-top: 4px;
+            border-radius: 6px;
+            border: 1px solid #334155;
+        }
+        .compare-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75rem;
+            min-width: 480px;
+        }
+        .compare-table th {
+            color: #64748b;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 6px 8px;
+            border-bottom: 1px solid #334155;
+            text-align: left;
+            white-space: nowrap;
+            background: #0f172a;
+        }
+        .compare-table td {
+            padding: 8px;
+            border-bottom: 1px solid #1e293b;
+            color: #cbd5e1;
+            vertical-align: top;
+        }
+        .compare-table tr:last-child td { border-bottom: none; }
+        .compare-table tr:hover td { background: #1e293b44; }
+        .compare-table td.num { text-align: right; color: #f1f5f9; font-variant-numeric: tabular-nums; }
+        .compare-table td.muted { color: #64748b; font-style: italic; }
+
+        /* Info cards for industry context */
+        .info-card {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .info-card .info-label {
+            font-size: 0.65rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 4px;
+        }
+        .info-card .info-val {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #38bdf8;
+        }
+        .info-card .info-sub {
+            font-size: 0.72rem;
+            color: #94a3b8;
+            margin-top: 3px;
+        }
+        .info-row { display: flex; gap: 8px; margin-bottom: 0; }
+        .info-row .info-card { flex: 1; margin-bottom: 8px; }
+
+        /* ----------------------------------------------------------------
+           Public / Learn view
+        ---------------------------------------------------------------- */
+        .fact-card {
+            background: #0f172a;
+            border-left: 3px solid #38bdf8;
+            border-radius: 0 6px 6px 0;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+        .fact-card .fact-num {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #f1f5f9;
+            line-height: 1.1;
+            margin-bottom: 4px;
+        }
+        .fact-card .fact-num.accent { color: #f59e0b; }
+        .fact-card .fact-num.blue { color: #38bdf8; }
+        .fact-card .fact-label { font-size: 0.82rem; color: #94a3b8; line-height: 1.4; }
+        .fact-card .fact-label strong { color: #e2e8f0; }
+
+        /* City selector */
+        .city-btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+        .city-btn {
+            padding: 5px 12px;
+            border-radius: 20px;
+            border: 1px solid #334155;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+        .city-btn:hover { border-color: #38bdf8; color: #38bdf8; }
+        .city-btn.active { background: #0ea5e9; border-color: #0ea5e9; color: #fff; font-weight: 600; }
+        #city-details { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+        #city-details .city-stat { padding: 6px 0; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; }
+        #city-details .city-stat:last-child { border-bottom: none; }
+        #city-details .city-stat-val { color: #f1f5f9; font-weight: 600; }
+
+        /* Comparison bars */
+        .compare-fact {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 10px 0;
+            border-bottom: 1px solid #1e293b;
+        }
+        .compare-fact:last-child { border-bottom: none; }
+        .compare-icon { font-size: 1.4rem; line-height: 1; flex-shrink: 0; }
+        .compare-text { font-size: 0.8rem; color: #94a3b8; line-height: 1.5; }
+        .compare-text strong { color: #e2e8f0; display: block; margin-bottom: 2px; }
+
+        /* Glossary */
+        .glossary-entry { border-bottom: 1px solid #1e293b; }
+        .glossary-entry:last-child { border-bottom: none; }
+        .glossary-term-btn {
+            width: 100%;
+            padding: 8px 4px;
+            background: none;
+            border: none;
+            color: #38bdf8;
+            font-size: 0.82rem;
+            text-align: left;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: inherit;
+        }
+        .glossary-term-btn:hover { color: #7dd3fc; }
+        .glossary-term-btn .g-arrow { font-size: 0.65rem; color: #475569; transition: transform 0.15s; }
+        .glossary-term-btn.open .g-arrow { transform: rotate(180deg); }
+        .glossary-def {
+            font-size: 0.78rem;
+            color: #94a3b8;
+            padding: 0 4px 10px 4px;
+            line-height: 1.5;
+            display: none;
+        }
+        .glossary-def.open { display: block; }
+
+        /* Context panel */
+        .context-panel {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 0.78rem;
+            color: #94a3b8;
+            line-height: 1.6;
+            margin-top: 4px;
+        }
+        .context-panel p + p { margin-top: 8px; }
+
+        /* ----------------------------------------------------------------
+           Leaflet overrides
+        ---------------------------------------------------------------- */
         .leaflet-control-layers {
             background: #1e293b !important;
             border: 1px solid #334155 !important;
             border-radius: 8px !important;
             color: #e2e8f0 !important;
-            font-size: 0.8rem !important;
+            font-size: 0.78rem !important;
         }
         .leaflet-control-layers label { color: #e2e8f0; margin-bottom: 2px; }
-
         .leaflet-popup-content-wrapper {
             background: #1e293b;
             color: #e2e8f0;
@@ -132,21 +488,49 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
         .leaflet-popup-tip { background: #1e293b; }
-        .leaflet-popup-content { font-size: 0.85rem; line-height: 1.5; }
+        .leaflet-popup-content { font-size: 0.82rem; line-height: 1.5; }
         .leaflet-popup-content strong { color: #38bdf8; }
 
+        /* ----------------------------------------------------------------
+           Mobile
+        ---------------------------------------------------------------- */
         @media (max-width: 768px) {
+            header { padding: 8px 12px; }
+            .header-left { gap: 10px; }
             .layout { flex-direction: column; height: auto; }
-            .sidebar { width: 100%; max-height: 50vh; }
-            #map { height: 50vh; }
+            .sidebar { width: 100%; max-height: 55vh; }
+            #map { height: 45vh; }
             .stats-bar { gap: 12px; }
+            .metric-grid { grid-template-columns: 1fr 1fr; }
+            .view-tab { font-size: 0.72rem; padding: 4px 8px; }
+        }
+        @media (max-width: 480px) {
+            header h1 { font-size: 1rem; }
+            .stats-bar { gap: 8px; }
+            .stat-value { font-size: 1rem; }
         }
     </style>
 </head>
 <body>
     <header>
-        <h1>AquiferWatch <span>West Texas</span></h1>
-        <div class="stats-bar">
+        <div class="header-left">
+            <h1>AquiferWatch <span>West Texas</span></h1>
+            <div class="view-tabs" role="tablist" aria-label="Dashboard view">
+                <button class="view-tab active" data-view="full" role="tab">
+                    <span class="tab-icon">📊</span>Full Dashboard
+                </button>
+                <button class="view-tab" data-view="policy" role="tab">
+                    <span class="tab-icon">🏛️</span>Policy &amp; Planning
+                </button>
+                <button class="view-tab" data-view="industry" role="tab">
+                    <span class="tab-icon">⚡</span>Industry &amp; Economic
+                </button>
+                <button class="view-tab" data-view="public" role="tab">
+                    <span class="tab-icon">🌊</span>Public / Learn
+                </button>
+            </div>
+        </div>
+        <div class="stats-bar" id="stats-bar">
             <div class="stat">
                 <div class="stat-value" id="stat-sites">-</div>
                 <div class="stat-label">Sites Tracked</div>
@@ -169,26 +553,33 @@
     <div class="layout">
         <div id="map"></div>
         <div class="sidebar">
-            <div class="panel">
+
+            <!-- ============================================================
+                 FULL DASHBOARD panels
+            ============================================================ -->
+            <div class="panel" id="panel-sites" data-views="full,policy,industry,public">
                 <h2>Data Center Sites</h2>
                 <div id="site-list"></div>
             </div>
-            <div class="chart-section" id="chart-section">
+
+            <div class="chart-section" id="panel-chart" data-views="full">
                 <h2>Aquifer Level Trend</h2>
-                <div class="chart-subtitle">Avg. depth to water near site (TWDB groundwater database measurements)</div>
+                <div class="chart-subtitle">Avg. depth to water near site (TWDB groundwater database)</div>
                 <canvas id="wl-chart"></canvas>
             </div>
-            <div class="ercot-panel">
+
+            <div class="ercot-panel" id="panel-ercot" data-views="full,industry">
                 <h2>ERCOT Generation Queue</h2>
                 <div class="fuel-bar" id="fuel-bar"></div>
                 <div class="fuel-legend" id="fuel-legend"></div>
             </div>
-            <div class="calc-section">
+
+            <div class="calc-section panel" id="panel-calc" data-views="full,public">
                 <h2>Water Impact Calculator</h2>
                 <div class="calc-row">
                     <label>Capacity</label>
                     <input type="number" id="calc-mw" placeholder="MW" value="500">
-                    <span style="color:#94a3b8;font-size:0.8rem">MW</span>
+                    <span style="color:#94a3b8;font-size:0.78rem">MW</span>
                 </div>
                 <div class="calc-row">
                     <label>Cooling</label>
@@ -203,8 +594,219 @@
                     <div class="detail" id="calc-detail"></div>
                 </div>
             </div>
-        </div>
-    </div>
+
+            <!-- ============================================================
+                 POLICY & PLANNING panels
+            ============================================================ -->
+
+            <!-- Big number overview -->
+            <div class="panel" id="panel-policy-overview" data-views="policy">
+                <h2>Water Budget Overview <span class="panel-badge">estimated</span></h2>
+                <div class="metric-grid" id="policy-metrics">
+                    <div class="metric-card">
+                        <div class="metric-val warn" id="pm-total-mw">-</div>
+                        <div class="metric-label">Total Proposed MW</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val danger" id="pm-total-gpd">-</div>
+                        <div class="metric-label">Est. Water Use (gal/day)</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val" id="pm-acft">-</div>
+                        <div class="metric-label">Acre-Feet per Year</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val" id="pm-pct-ag">-</div>
+                        <div class="metric-label">% of Regional Ag Water</div>
+                    </div>
+                </div>
+                <div class="metric-card-wide" id="pm-depletion">
+                    <div class="metric-val" id="pm-depletion-val">-</div>
+                    <div class="metric-desc">
+                        <strong id="pm-depletion-label">Aquifer Depletion Rate</strong>
+                        <span id="pm-depletion-sub">Calculating from TWDB well data...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DC pipeline by status -->
+            <div class="panel" id="panel-policy-pipeline" data-views="policy">
+                <h2>DC Project Pipeline</h2>
+                <div id="policy-pipeline-content">
+                    <table class="pipeline-table">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Projects</th>
+                                <th>Total MW</th>
+                                <th>Est. GPD</th>
+                            </tr>
+                        </thead>
+                        <tbody id="policy-pipeline-rows"></tbody>
+                    </table>
+                </div>
+                <div class="placeholder-notice" style="margin-top:10px">
+                    <strong>Permit Pipeline</strong>
+                    TCEQ permit data ingestion planned. Air permits for Fermi America (Project Matador) approved Feb 2026.
+                </div>
+            </div>
+
+            <!-- Aquifer status -->
+            <div class="panel" id="panel-policy-aquifer" data-views="policy">
+                <h2>Aquifer Monitoring Status</h2>
+                <div id="policy-aquifer-content" style="font-size:0.8rem;color:#94a3b8;line-height:1.6;">
+                    Loading...
+                </div>
+                <div class="placeholder-notice" style="margin-top:10px">
+                    <strong>Reservoir Status</strong>
+                    Lake Alan Henry, Buffalo Lake, and Meredith reservoir data ingestion planned (Phase 5).
+                </div>
+                <div class="placeholder-notice">
+                    <strong>Drought Index</strong>
+                    USDA/NOAA drought monitor integration planned. Check drought.gov for current status.
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 INDUSTRY & ECONOMIC panels
+            ============================================================ -->
+
+            <!-- Energy context -->
+            <div class="panel" id="panel-industry-energy" data-views="industry">
+                <h2>Grid &amp; Energy Context</h2>
+                <div class="info-row">
+                    <div class="info-card">
+                        <div class="info-label">ERCOT Queue MW</div>
+                        <div class="info-val" id="ind-ercot-mw">-</div>
+                        <div class="info-sub" id="ind-ercot-projects">- projects</div>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-label">Renewable Share</div>
+                        <div class="info-val" id="ind-renewable-pct">-</div>
+                        <div class="info-sub" id="ind-renewable-mw">- MW solar+wind+battery</div>
+                    </div>
+                </div>
+                <div id="ind-fuel-breakdown"></div>
+                <div class="placeholder-notice" style="margin-top:4px">
+                    <strong>Live Energy Pricing</strong>
+                    ERCOT settlement point prices not yet ingested. West Texas (LCRA hub) frequently sees negative prices during high wind generation. Check ERCOT SCED/DAM data for real-time pricing.
+                </div>
+            </div>
+
+            <!-- Water availability -->
+            <div class="panel" id="panel-industry-water" data-views="industry">
+                <h2>Water Availability by County <span class="panel-badge">score 0–100</span></h2>
+                <div id="ind-water-avail"></div>
+                <div class="context-panel" style="margin-top:10px;font-size:0.72rem;">
+                    Score derived from aquifer depth measurements: 80+ = favorable, 60 = monitor, 40 = constrained, &lt;40 = stressed.
+                </div>
+            </div>
+
+            <!-- Site comparison -->
+            <div class="panel" id="panel-site-comparison" data-views="industry">
+                <h2>Site Comparison</h2>
+                <div class="compare-wrap">
+                    <table class="compare-table">
+                        <thead>
+                            <tr>
+                                <th>Site</th>
+                                <th>County</th>
+                                <th>Status</th>
+                                <th>MW</th>
+                                <th>GPD Est.</th>
+                                <th>GPD/MW</th>
+                                <th>Nearby Wells</th>
+                                <th>Aquifer Depth</th>
+                            </tr>
+                        </thead>
+                        <tbody id="compare-rows"></tbody>
+                    </table>
+                </div>
+                <div style="font-size:0.7rem;color:#64748b;margin-top:6px;">
+                    Scroll right for all columns. Click a site to zoom on map.
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 PUBLIC / LEARN panels
+            ============================================================ -->
+
+            <!-- Key facts -->
+            <div class="panel" id="panel-public-facts" data-views="public">
+                <h2>What's Happening in West Texas</h2>
+                <div id="public-facts-content">
+                    <div class="fact-card">
+                        <div class="fact-num blue" id="pub-sites">-</div>
+                        <div class="fact-label">data center projects are being tracked in the AquiferWatch database — ranging from early proposals to operational sites.</div>
+                    </div>
+                    <div class="fact-card">
+                        <div class="fact-num accent" id="pub-mw">-</div>
+                        <div class="fact-label">megawatts of computing capacity proposed — enough electricity for <strong id="pub-homes">-</strong> homes.</div>
+                    </div>
+                    <div class="fact-card">
+                        <div class="fact-num danger" id="pub-gpd">-</div>
+                        <div class="fact-label">gallons of water per day estimated to be needed — based on proposed capacities.</div>
+                    </div>
+                    <div class="fact-card">
+                        <div class="fact-num" id="pub-depth">-</div>
+                        <div class="fact-label">feet — average depth to the water table in monitored Ogallala wells over the past year.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- City selector -->
+            <div class="panel" id="panel-public-city" data-views="public">
+                <h2>What Does This Mean for Your Area?</h2>
+                <div class="city-btn-row">
+                    <button class="city-btn" data-city="Lubbock" data-county="Lubbock">Lubbock</button>
+                    <button class="city-btn" data-city="Amarillo" data-county="Potter,Randall,Carson">Amarillo</button>
+                    <button class="city-btn" data-city="Midland" data-county="Midland">Midland</button>
+                    <button class="city-btn" data-city="Odessa" data-county="Ector">Odessa</button>
+                    <button class="city-btn" data-city="Dickens" data-county="Dickens">Dickens Co.</button>
+                </div>
+                <div id="city-details" style="color:#64748b;font-size:0.8rem;">
+                    Select a city or county above to see local context.
+                </div>
+            </div>
+
+            <!-- Comparisons -->
+            <div class="panel" id="panel-public-comparisons" data-views="public">
+                <h2>How Much Water Is That?</h2>
+                <div id="public-comparisons">
+                    <div class="compare-fact">
+                        <div class="compare-icon">🏠</div>
+                        <div class="compare-text">
+                            <strong id="cmp-households">-</strong>
+                            Households could be supplied with that much water each day (at 80 gal/person, 2.5 people per household).
+                        </div>
+                    </div>
+                    <div class="compare-fact">
+                        <div class="compare-icon">🌾</div>
+                        <div class="compare-text">
+                            <strong id="cmp-farms">-</strong>
+                            Acres of West Texas farmland could be irrigated annually with the same water (at 1.5 acre-feet/acre/year for wheat).
+                        </div>
+                    </div>
+                    <div class="compare-fact">
+                        <div class="compare-icon">🏊</div>
+                        <div class="compare-text">
+                            <strong id="cmp-pools">-</strong>
+                            Olympic swimming pools filled — every single day.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Glossary -->
+            <div class="panel" id="panel-public-glossary" data-views="public">
+                <h2>Glossary of Terms</h2>
+                <div id="glossary-list">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+        </div><!-- .sidebar -->
+    </div><!-- .layout -->
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/static/app.js"></script>
