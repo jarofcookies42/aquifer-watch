@@ -116,6 +116,62 @@
         .fuel-legend span { display: flex; align-items: center; gap: 4px; }
         .fuel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
+        /* Reservoir panel */
+        .reservoir-panel { padding: 16px; border-bottom: 1px solid #334155; }
+        .reservoir-panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .reservoir-panel .panel-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 12px; font-style: italic; }
+
+        .reservoir-card {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .reservoir-card:hover, .reservoir-card.active { border-color: #06b6d4; }
+        .reservoir-card .res-info { flex: 1; min-width: 0; }
+        .reservoir-card .res-name { font-size: 0.85rem; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .reservoir-card .res-meta { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+
+        .pct-badge {
+            flex-shrink: 0;
+            width: 48px;
+            text-align: center;
+        }
+        .pct-badge .pct-value { font-size: 1rem; font-weight: 700; }
+        .pct-badge .pct-label { font-size: 0.6rem; color: #64748b; text-transform: uppercase; }
+
+        .pct-full    { color: #22c55e; }
+        .pct-good    { color: #86efac; }
+        .pct-medium  { color: #f59e0b; }
+        .pct-low     { color: #f97316; }
+        .pct-critical { color: #ef4444; }
+        .pct-unknown  { color: #6b7280; }
+
+        .pct-bar-wrap { width: 100%; height: 4px; background: #1e293b; border-radius: 2px; margin-top: 4px; }
+        .pct-bar { height: 4px; border-radius: 2px; transition: width 0.3s; }
+
+        .reservoir-summary-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 10px;
+            font-size: 0.8rem;
+        }
+        .reservoir-summary-row .rs-stat { text-align: center; }
+        .reservoir-summary-row .rs-value { font-size: 1.1rem; font-weight: 700; color: #06b6d4; }
+        .reservoir-summary-row .rs-label { color: #64748b; font-size: 0.7rem; }
+
+        /* Reservoir level chart section */
+        .res-chart-section { padding: 16px; border-bottom: 1px solid #334155; display: none; }
+        .res-chart-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .res-chart-section .chart-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
+        #res-chart { width: 100%; height: 160px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
+
         .leaflet-control-layers {
             background: #1e293b !important;
             border: 1px solid #334155 !important;
@@ -172,6 +228,30 @@
             <div class="panel">
                 <h2>Data Center Sites</h2>
                 <div id="site-list"></div>
+            </div>
+            <div class="reservoir-panel" id="reservoir-panel">
+                <h2>Surface Water Reservoirs</h2>
+                <div class="panel-subtitle">Daily storage from TWDB Water Data for Texas</div>
+                <div class="reservoir-summary-row" id="res-summary-row" style="display:none">
+                    <div class="rs-stat">
+                        <div class="rs-value" id="res-stat-pct">-</div>
+                        <div class="rs-label">Region Avg</div>
+                    </div>
+                    <div class="rs-stat">
+                        <div class="rs-value" id="res-stat-storage">-</div>
+                        <div class="rs-label">Total Storage</div>
+                    </div>
+                    <div class="rs-stat">
+                        <div class="rs-value" id="res-stat-count">-</div>
+                        <div class="rs-label">Reservoirs</div>
+                    </div>
+                </div>
+                <div id="reservoir-list"></div>
+            </div>
+            <div class="res-chart-section" id="res-chart-section">
+                <h2 id="res-chart-title">Reservoir Level Trend</h2>
+                <div class="chart-subtitle">Daily % of conservation storage (TWDB WDFT / USGS)</div>
+                <canvas id="res-chart"></canvas>
             </div>
             <div class="chart-section" id="chart-section">
                 <h2>Aquifer Level Trend</h2>

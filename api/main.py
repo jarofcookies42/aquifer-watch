@@ -365,6 +365,177 @@ def water_levels(
     ]
 
 
+@app.get("/api/reservoirs")
+def list_reservoirs():
+    """All tracked surface-water reservoirs with latest storage level."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    r.id, r.name, r.slug, r.county, r.managing_authority,
+                    r.conservation_storage_acft, r.dead_pool_acft,
+                    r.surface_area_acres, r.notes,
+                    ST_Y(r.location) AS lat, ST_X(r.location) AS lon,
+                    lrl.measured_at, lrl.percent_full,
+                    lrl.current_storage_acft, lrl.water_elevation_ft,
+                    lrl.source AS level_source
+                FROM reservoirs r
+                LEFT JOIN latest_reservoir_levels lrl ON lrl.reservoir_id = r.id
+                ORDER BY r.name
+            """)
+            return cur.fetchall()
+
+
+@app.get("/api/reservoirs/{reservoir_id}")
+def get_reservoir(reservoir_id: int):
+    """Single reservoir with latest level and nearby data center sites."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    r.id, r.name, r.slug, r.county, r.managing_authority,
+                    r.conservation_storage_acft, r.dead_pool_acft,
+                    r.surface_area_acres, r.usgs_site_no, r.notes,
+                    ST_Y(r.location) AS lat, ST_X(r.location) AS lon,
+                    lrl.measured_at, lrl.percent_full,
+                    lrl.current_storage_acft, lrl.water_elevation_ft,
+                    lrl.source AS level_source
+                FROM reservoirs r
+                LEFT JOIN latest_reservoir_levels lrl ON lrl.reservoir_id = r.id
+                WHERE r.id = %s
+            """, (reservoir_id,))
+            reservoir = cur.fetchone()
+
+            if not reservoir:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404, detail="Reservoir not found")
+
+            # Nearby data center sites (within 100 miles)
+            cur.execute("""
+                SELECT site_id, site_name, project_code, distance_miles
+                FROM reservoirs_near_sites
+                WHERE reservoir_id = %s
+                ORDER BY distance_miles
+                LIMIT 5
+            """, (reservoir_id,))
+            reservoir["nearby_sites"] = cur.fetchall()
+
+            return reservoir
+
+
+@app.get("/api/reservoirs/{reservoir_id}/levels")
+def reservoir_levels(
+    reservoir_id: int,
+    start: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    resolution: str = Query("daily", description="Aggregation: daily, monthly, or annual"),
+):
+    """
+    Time-series storage data for a reservoir.
+
+    Returns daily, monthly-average, or annual-average percent-full and
+    storage over the requested date range.  Defaults to the last 365 days
+    at daily resolution.
+    """
+    date_filter = "AND rl.measured_at >= now() - interval '365 days'"
+    params: list = [reservoir_id]
+
+    if start:
+        date_filter = "AND rl.measured_at >= %s"
+        params.append(start)
+        if end:
+            date_filter += " AND rl.measured_at <= %s"
+            params.append(end)
+
+    if resolution == "monthly":
+        trunc = "month"
+    elif resolution == "annual":
+        trunc = "year"
+    else:
+        trunc = "day"
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT
+                    date_trunc(%s, rl.measured_at) AS period,
+                    AVG(rl.percent_full)              AS avg_pct_full,
+                    AVG(rl.conservation_storage_acft) AS avg_storage_acft,
+                    MIN(rl.conservation_storage_acft) AS min_storage_acft,
+                    MAX(rl.conservation_storage_acft) AS max_storage_acft,
+                    AVG(rl.water_elevation_ft)        AS avg_elevation_ft,
+                    COUNT(*)                          AS measurement_count
+                FROM reservoir_levels rl
+                WHERE rl.reservoir_id = %s
+                  {date_filter}
+                GROUP BY date_trunc(%s, rl.measured_at)
+                ORDER BY period
+            """, [trunc] + params + [trunc])
+            rows = cur.fetchall()
+
+    result = []
+    for row in rows:
+        period = row["period"]
+        result.append({
+            "period": period.strftime("%Y-%m-%d") if period else None,
+            "avg_pct_full": round(float(row["avg_pct_full"]), 1) if row["avg_pct_full"] else None,
+            "avg_storage_acft": round(float(row["avg_storage_acft"])) if row["avg_storage_acft"] else None,
+            "min_storage_acft": round(float(row["min_storage_acft"])) if row["min_storage_acft"] else None,
+            "max_storage_acft": round(float(row["max_storage_acft"])) if row["max_storage_acft"] else None,
+            "avg_elevation_ft": round(float(row["avg_elevation_ft"]), 1) if row["avg_elevation_ft"] else None,
+            "measurement_count": row["measurement_count"],
+        })
+    return result
+
+
+@app.get("/api/reservoir-summary")
+def reservoir_summary():
+    """
+    Latest level snapshot for all reservoirs — optimised for the map and
+    dashboard summary panel.  Returns one row per reservoir ordered by
+    percent-full descending (emptiest last for visual triage).
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT
+                    r.id, r.name, r.slug, r.county, r.managing_authority,
+                    r.conservation_storage_acft AS capacity_acft,
+                    ST_Y(r.location) AS lat, ST_X(r.location) AS lon,
+                    lrl.measured_at, lrl.percent_full,
+                    lrl.current_storage_acft, lrl.water_elevation_ft
+                FROM reservoirs r
+                LEFT JOIN latest_reservoir_levels lrl ON lrl.reservoir_id = r.id
+                ORDER BY lrl.percent_full ASC NULLS LAST
+            """)
+            rows = cur.fetchall()
+
+    # Aggregate totals for the dashboard
+    total_capacity = sum(
+        float(r["capacity_acft"]) for r in rows if r["capacity_acft"]
+    )
+    total_storage = sum(
+        float(r["current_storage_acft"])
+        for r in rows
+        if r["current_storage_acft"]
+    )
+    statewide_pct = (
+        round(total_storage / total_capacity * 100, 1)
+        if total_capacity
+        else None
+    )
+
+    return {
+        "reservoirs": rows,
+        "summary": {
+            "count": len(rows),
+            "total_capacity_acft": round(total_capacity),
+            "total_current_storage_acft": round(total_storage),
+            "statewide_pct_full": statewide_pct,
+        },
+    }
+
+
 @app.get("/api/water-impact")
 def water_impact(
     capacity_mw: float = Query(..., description="Data center capacity in MW"),
