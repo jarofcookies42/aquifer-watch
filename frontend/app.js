@@ -2274,6 +2274,16 @@ function setText(id, val) {
             'Reservoirs': reservoirsLayer,
         }, { collapsed: false, position: 'bottomleft' }).addTo(map);
 
+        // Map coverage note
+        const coverageNote = L.control({ position: 'bottomleft' });
+        coverageNote.onAdd = function () {
+            const div = L.DomUtil.create('div', 'map-coverage-note');
+            div.innerHTML = 'Wells shown within 25mi of tracked sites';
+            div.style.cssText = 'color:#94a3b8;font-size:10px;padding:2px 6px;background:rgba(15,23,42,0.7);border-radius:3px;margin-top:4px;';
+            return div;
+        };
+        coverageNote.addTo(map);
+
         // View tab click handlers
         document.querySelectorAll('.view-tab').forEach(btn => {
             btn.addEventListener('click', () => switchView(btn.dataset.view));
