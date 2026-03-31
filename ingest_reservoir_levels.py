@@ -145,11 +145,9 @@ def fetch_wdft_levels(
         List of dicts with keys: measured_at, percent_full,
         conservation_storage_acft, water_elevation_ft, source.
     """
-    # WDFT CSV URL — the query-string parameters filter by date range.
-    url = (
-        f"{WDFT_BASE}/reservoirs/individual/{wdft_id}/storage.csv"
-        f"?start={start_date.isoformat()}&end={end_date.isoformat()}"
-    )
+    # WDFT CSV URL — returns all historical data (no date filtering).
+    # We filter to the requested range after parsing.
+    url = f"{WDFT_BASE}/reservoirs/individual/{wdft_id}.csv"
     log.info(f"  WDFT fetch: {slug} → {url}")
 
     try:
@@ -159,13 +157,15 @@ def fetch_wdft_levels(
         log.warning(f"  WDFT request failed for {slug}: {exc}")
         return []
 
-    return _parse_wdft_csv(resp.text, slug, conservation_storage_acft)
+    return _parse_wdft_csv(resp.text, slug, conservation_storage_acft, start_date, end_date)
 
 
 def _parse_wdft_csv(
     text: str,
     slug: str,
     conservation_storage_acft: Optional[float],
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> list[dict]:
     """
     Parse WDFT CSV response into normalized level dicts.
@@ -176,7 +176,7 @@ def _parse_wdft_csv(
 
     Returns list of level dicts (empty on parse failure).
     """
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
     if len(lines) < 2:
         log.warning(f"  WDFT: empty or single-line response for {slug}")
         return []
@@ -188,7 +188,7 @@ def _parse_wdft_csv(
     DATE_COLS = ("date", "measurement_date", "record_date")
     STORAGE_COLS = ("storage_acft", "storage", "conservation_storage", "acre_feet", "acft")
     PCT_COLS = ("percent_full", "percent_conservation", "pct_full", "pct_conservation", "%_full")
-    ELEV_COLS = ("elevation_ft", "water_surface_elevation", "elevation", "elev_ft", "wse")
+    ELEV_COLS = ("elevation_ft", "water_level", "water_surface_elevation", "elevation", "elev_ft", "wse")
 
     def find_col(aliases):
         for a in aliases:
@@ -226,6 +226,13 @@ def _parse_wdft_csv(
                 )
             except ValueError:
                 continue
+
+        # Filter by date range if specified
+        row_date = measured_at.date()
+        if start_date and row_date < start_date:
+            continue
+        if end_date and row_date > end_date:
+            continue
 
         # Parse storage
         storage = None

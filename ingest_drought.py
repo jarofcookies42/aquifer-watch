@@ -37,10 +37,10 @@ import requests
 # Configuration
 # ---------------------------------------------------------------------------
 
-USDM_BASE = (
-    "https://usdm.climate.columbia.edu/api/webservice/statisticsdata"
-    "/percentofarea"
-)
+USDM_BASES = [
+    "https://usdm.climate.columbia.edu/api/webservice/statisticsdata/percentofarea",
+    "https://droughtmonitor.unl.edu/api/webservice/statisticsdata/percentofarea",
+]
 
 # Target counties: name → 5-digit FIPS code
 # Covers all counties within ~50 miles of tracked data center sites, matching
@@ -162,26 +162,27 @@ def fetch_drought_for_county(
     Returns:
         List of DroughtRecord, one per weekly release in the range.
     """
-    url = (
-        f"{USDM_BASE}/{fips}"
-        f"/{start.strftime('%Y%m%d')}"
-        f"/{end.strftime('%Y%m%d')}"
-        "/county/"
-    )
+    data = None
+    for base_url in USDM_BASES:
+        url = (
+            f"{base_url}/{fips}"
+            f"/{start.strftime('%Y%m%d')}"
+            f"/{end.strftime('%Y%m%d')}"
+            "/county/"
+        )
 
-    try:
-        resp = _SESSION.get(url, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-    except requests.HTTPError as e:
-        log.warning(f"  HTTP {e.response.status_code} for {county_name} ({fips}): {url}")
-        return []
-    except requests.RequestException as e:
-        log.warning(f"  Request error for {county_name} ({fips}): {e}")
-        return []
-    except json.JSONDecodeError:
-        log.warning(f"  Invalid JSON for {county_name} ({fips})")
-        return []
+        try:
+            resp = _SESSION.get(url, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            if data:
+                break  # Success — stop trying other endpoints
+        except requests.HTTPError as e:
+            log.warning(f"  HTTP {e.response.status_code} for {county_name} ({fips}): {url}")
+        except requests.RequestException as e:
+            log.warning(f"  Request error for {county_name} ({fips}): {e}")
+        except json.JSONDecodeError:
+            log.warning(f"  Invalid JSON for {county_name} ({fips})")
 
     if not data:
         return []

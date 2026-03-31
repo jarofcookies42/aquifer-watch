@@ -586,6 +586,31 @@ CROSS JOIN dc_sites s
 WHERE ST_DWithin(r.location::geography, s.location::geography, 160934)  -- 100 miles in meters
 ORDER BY s.id, distance_miles;
 
+-- ============================================================
+-- Phase 3: ERCOT Energy Market Tables
+-- ============================================================
+
+-- Settlement point prices (15-min real-time market)
+CREATE TABLE IF NOT EXISTS ercot_pricing (
+    ts              timestamptz    NOT NULL,
+    settlement_point text          NOT NULL,
+    price_per_mwh   numeric(10,2),
+    ingested_at     timestamptz    DEFAULT now(),
+    PRIMARY KEY (ts, settlement_point)
+);
+CREATE INDEX IF NOT EXISTS idx_ercot_pricing_point ON ercot_pricing (settlement_point, ts DESC);
+
+-- Wind/solar generation output (5-min fuel mix)
+CREATE TABLE IF NOT EXISTS ercot_generation (
+    ts           timestamptz  NOT NULL,
+    fuel_type    text         NOT NULL,
+    output_mw    numeric(10,2),
+    forecast_mw  numeric(10,2),
+    ingested_at  timestamptz  DEFAULT now(),
+    PRIMARY KEY (ts, fuel_type)
+);
+CREATE INDEX IF NOT EXISTS idx_ercot_generation_fuel ON ercot_generation (fuel_type, ts DESC);
+
 -- Latest price per settlement point
 CREATE OR REPLACE VIEW latest_ercot_pricing AS
 SELECT DISTINCT ON (settlement_point)

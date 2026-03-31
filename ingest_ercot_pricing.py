@@ -72,9 +72,9 @@ def fetch_spp(
 
     try:
         if start and end:
-            df = ercot.get_spp(start=start, end=end, verbose=False)
+            df = ercot.get_spp(start=start, end=end, market="REAL_TIME_15_MIN", verbose=False)
         else:
-            df = ercot.get_spp(date="latest", verbose=False)
+            df = ercot.get_spp(date="latest", market="REAL_TIME_15_MIN", verbose=False)
     except Exception as e:
         log.error(f"gridstatus get_spp failed: {e}")
         return []
