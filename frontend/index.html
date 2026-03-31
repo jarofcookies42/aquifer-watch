@@ -116,6 +116,44 @@
         .fuel-legend span { display: flex; align-items: center; gap: 4px; }
         .fuel-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
+        /* Energy Market panel */
+        .energy-panel { padding: 16px; border-bottom: 1px solid #334155; }
+        .energy-panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+
+        .energy-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .energy-stat {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 8px 10px;
+        }
+        .energy-stat .label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .energy-stat .value { font-size: 1.1rem; font-weight: 700; color: #38bdf8; margin-top: 2px; }
+        .energy-stat .value.negative { color: #a855f7; }
+        .energy-stat .value.wind { color: #38bdf8; }
+        .energy-stat .value.solar { color: #facc15; }
+
+        .energy-no-data {
+            font-size: 0.75rem;
+            color: #64748b;
+            font-style: italic;
+            padding: 8px 0;
+            text-align: center;
+        }
+
+        .energy-chart-label {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-bottom: 4px;
+            font-style: italic;
+        }
+        .energy-chart { width: 100%; height: 140px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; display: block; margin-bottom: 10px; }
+
         /* Reservoir panel */
         .reservoir-panel { padding: 16px; border-bottom: 1px solid #334155; }
         .reservoir-panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
@@ -262,6 +300,36 @@
                 <h2>ERCOT Generation Queue</h2>
                 <div class="fuel-bar" id="fuel-bar"></div>
                 <div class="fuel-legend" id="fuel-legend"></div>
+            </div>
+            <div class="energy-panel" id="energy-panel">
+                <h2>Energy Market — West Texas</h2>
+                <div class="energy-stats">
+                    <div class="energy-stat">
+                        <div class="label">HB West Price</div>
+                        <div class="value" id="en-price">—</div>
+                    </div>
+                    <div class="energy-stat">
+                        <div class="label">Today Avg</div>
+                        <div class="value" id="en-avg">—</div>
+                    </div>
+                    <div class="energy-stat">
+                        <div class="label">Wind Output</div>
+                        <div class="value wind" id="en-wind">—</div>
+                    </div>
+                    <div class="energy-stat">
+                        <div class="label">Solar Output</div>
+                        <div class="value solar" id="en-solar">—</div>
+                    </div>
+                </div>
+                <div id="energy-no-data" class="energy-no-data" style="display:none">
+                    No energy data — run <code>python ingest_ercot_pricing.py</code>
+                </div>
+                <div id="energy-charts" style="display:none">
+                    <div class="energy-chart-label">HB West Settlement Price ($/MWh) — last 7 days</div>
+                    <canvas id="en-price-chart" class="energy-chart"></canvas>
+                    <div class="energy-chart-label">Wind &amp; Solar Generation (MW) — last 7 days</div>
+                    <canvas id="en-gen-chart" class="energy-chart"></canvas>
+                </div>
             </div>
             <div class="calc-section">
                 <h2>Water Impact Calculator</h2>

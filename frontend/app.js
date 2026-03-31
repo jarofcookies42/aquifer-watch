@@ -709,6 +709,305 @@ function drawReservoirChart(data) {
 }
 
 // ---------------------------------------------------------------------------
+// Energy Market panel
+// ---------------------------------------------------------------------------
+
+async function loadEnergyPanel() {
+    try {
+        const summary = await fetchJSON('/api/energy/summary');
+        const hasData = summary.data_loaded.pricing_rows > 0 || summary.data_loaded.generation_rows > 0;
+
+        if (!hasData) {
+            document.getElementById('energy-no-data').style.display = 'block';
+            document.getElementById('energy-charts').style.display = 'none';
+            return;
+        }
+
+        document.getElementById('energy-no-data').style.display = 'none';
+        document.getElementById('energy-charts').style.display = 'block';
+
+        const c = summary.current;
+
+        // Current price — highlight negative in purple
+        const priceEl = document.getElementById('en-price');
+        const price = c.hb_west_price;
+        if (price != null) {
+            priceEl.textContent = '$' + price.toFixed(2);
+            priceEl.className = 'value' + (price < 0 ? ' negative' : '');
+        }
+
+        // Today average
+        const avg = summary.today_hb_west.avg_price;
+        const avgEl = document.getElementById('en-avg');
+        if (avg != null) {
+            avgEl.textContent = '$' + avg.toFixed(2);
+            avgEl.className = 'value' + (avg < 0 ? ' negative' : '');
+        }
+
+        // Wind & solar
+        if (c.wind_mw != null) {
+            document.getElementById('en-wind').textContent =
+                (c.wind_mw / 1000).toFixed(1) + ' GW';
+        }
+        if (c.solar_mw != null) {
+            document.getElementById('en-solar').textContent =
+                (c.solar_mw / 1000).toFixed(1) + ' GW';
+        }
+
+        // Load chart data in parallel
+        await Promise.all([loadPricingChart(), loadGenerationChart()]);
+
+    } catch (err) {
+        console.error('Energy panel error:', err);
+    }
+}
+
+async function loadPricingChart() {
+    try {
+        const resp = await fetchJSON('/api/energy/pricing?zone=HB_WEST&days=7&resolution=hourly');
+        if (!resp.data.length) return;
+        drawPricingChart(resp.data);
+    } catch (err) {
+        console.error('Pricing chart error:', err);
+    }
+}
+
+async function loadGenerationChart() {
+    try {
+        const resp = await fetchJSON('/api/energy/generation?days=7');
+        if (!resp.data.length) return;
+        drawGenerationChart(resp.data);
+    } catch (err) {
+        console.error('Generation chart error:', err);
+    }
+}
+
+function drawPricingChart(data) {
+    const canvas = document.getElementById('en-price-chart');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = 140 * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = '140px';
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = 140;
+    const pad = { top: 16, right: 12, bottom: 24, left: 44 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, W, H);
+
+    if (!data.length) return;
+
+    const prices = data.map(d => parseFloat(d.price_per_mwh));
+    const rawMin = Math.min(...prices);
+    const rawMax = Math.max(...prices);
+    const rangePad = Math.max((rawMax - rawMin) * 0.15, 5);
+    const yMin = rawMin - rangePad;
+    const yMax = rawMax + rangePad;
+
+    const xScale = i => pad.left + (i / (data.length - 1)) * plotW;
+    const yScale = v => pad.top + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+    const zeroY = yScale(0);
+
+    // Zero line (shows when prices go negative)
+    if (yMin < 0 && yMax > 0) {
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, zeroY);
+        ctx.lineTo(W - pad.right, zeroY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Y grid + labels
+    const ySteps = 4;
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#64748b';
+    for (let i = 0; i <= ySteps; i++) {
+        const val = yMin + ((yMax - yMin) / ySteps) * i;
+        const y = yScale(val);
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillText('$' + Math.round(val), pad.left - 4, y + 3);
+    }
+
+    // X axis time labels (show ~4 evenly spaced)
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#64748b';
+    const step = Math.max(1, Math.floor(data.length / 4));
+    data.forEach((d, i) => {
+        if (i % step === 0 || i === data.length - 1) {
+            const label = new Date(d.ts).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+            ctx.fillText(label, xScale(i), H - pad.bottom + 14);
+        }
+    });
+
+    // Fill: negative regions in purple, positive in blue
+    for (let i = 0; i < data.length - 1; i++) {
+        const x0 = xScale(i);
+        const x1 = xScale(i + 1);
+        const p0 = prices[i];
+        const p1 = prices[i + 1];
+        const isNeg = p0 < 0 || p1 < 0;
+        ctx.fillStyle = isNeg ? '#a855f722' : '#38bdf812';
+        ctx.fillRect(x0, Math.min(yScale(p0), yScale(p1)), x1 - x0,
+            Math.max(Math.abs(yScale(p0) - yScale(p1)), 1));
+    }
+
+    // Price line — color by sign
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    data.forEach((d, i) => {
+        if (i === 0) return;
+        const isNeg = prices[i] < 0;
+        ctx.strokeStyle = isNeg ? '#a855f7' : '#38bdf8';
+        ctx.beginPath();
+        ctx.moveTo(xScale(i - 1), yScale(prices[i - 1]));
+        ctx.lineTo(xScale(i), yScale(prices[i]));
+        ctx.stroke();
+    });
+
+    // Annotation: negative interval count
+    const negCount = prices.filter(p => p < 0).length;
+    if (negCount > 0) {
+        ctx.fillStyle = '#a855f7';
+        ctx.font = 'bold 10px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${negCount} negative intervals`, W - pad.right, pad.top - 2);
+    }
+}
+
+function drawGenerationChart(data) {
+    const canvas = document.getElementById('en-gen-chart');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = 140 * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = '140px';
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = 140;
+    const pad = { top: 16, right: 12, bottom: 24, left: 44 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, W, H);
+
+    if (!data.length) return;
+
+    // Split into wind and solar series keyed by ts
+    const tsSet = [...new Set(data.map(d => d.ts))].sort();
+    const windByTs = Object.fromEntries(
+        data.filter(d => d.fuel_type === 'Wind').map(d => [d.ts, d.output_mw])
+    );
+    const solarByTs = Object.fromEntries(
+        data.filter(d => d.fuel_type === 'Solar').map(d => [d.ts, d.output_mw])
+    );
+
+    const windVals = tsSet.map(t => windByTs[t] ?? null);
+    const solarVals = tsSet.map(t => solarByTs[t] ?? null);
+    const allVals = [...windVals, ...solarVals].filter(v => v != null);
+    if (!allVals.length) return;
+
+    const yMax = Math.max(...allVals) * 1.1;
+    const yMin = 0;
+
+    const xScale = i => pad.left + (i / Math.max(tsSet.length - 1, 1)) * plotW;
+    const yScale = v => pad.top + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+
+    // Y grid + labels
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#64748b';
+    const ySteps = 3;
+    for (let i = 0; i <= ySteps; i++) {
+        const val = (yMax / ySteps) * i;
+        const y = yScale(val);
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillText(Math.round(val / 1000) + 'k', pad.left - 4, y + 3);
+    }
+
+    // X axis time labels
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#64748b';
+    const step = Math.max(1, Math.floor(tsSet.length / 4));
+    tsSet.forEach((ts, i) => {
+        if (i % step === 0 || i === tsSet.length - 1) {
+            const label = new Date(ts).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+            ctx.fillText(label, xScale(i), H - pad.bottom + 14);
+        }
+    });
+
+    function drawSeries(vals, color) {
+        // Area fill
+        ctx.fillStyle = color + '18';
+        ctx.beginPath();
+        let started = false;
+        vals.forEach((v, i) => {
+            if (v == null) return;
+            const x = xScale(i);
+            const y = yScale(v);
+            if (!started) { ctx.moveTo(x, yScale(0)); ctx.lineTo(x, y); started = true; }
+            else ctx.lineTo(x, y);
+        });
+        // Close path back to baseline (right to left)
+        for (let i = vals.length - 1; i >= 0; i--) {
+            if (vals[i] != null) ctx.lineTo(xScale(i), yScale(0));
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // Line
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        let first = true;
+        vals.forEach((v, i) => {
+            if (v == null) { first = true; return; }
+            if (first) { ctx.moveTo(xScale(i), yScale(v)); first = false; }
+            else ctx.lineTo(xScale(i), yScale(v));
+        });
+        ctx.stroke();
+    }
+
+    drawSeries(solarVals, '#facc15');
+    drawSeries(windVals, '#38bdf8');
+
+    // Legend
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(pad.left + 2, pad.top, 10, 3);
+    ctx.fillText('Wind', pad.left + 16, pad.top + 4);
+    ctx.fillStyle = '#facc15';
+    ctx.fillRect(pad.left + 52, pad.top, 10, 3);
+    ctx.fillText('Solar', pad.left + 66, pad.top + 4);
+}
+
+// ---------------------------------------------------------------------------
 // Water impact calculator
 // ---------------------------------------------------------------------------
 
@@ -746,6 +1045,7 @@ document.getElementById('calc-cooling').addEventListener('change', updateCalc);
             loadErcotSummary(),
             loadErcotMapLayer(),
             loadReservoirSummary(),
+            loadEnergyPanel(),
         ]);
         updateCalc();
 

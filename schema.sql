@@ -519,6 +519,38 @@ CROSS JOIN dc_sites s
 WHERE ST_DWithin(r.location::geography, s.location::geography, 160934)  -- 100 miles in meters
 ORDER BY s.id, distance_miles;
 
+-- Latest price per settlement point
+CREATE OR REPLACE VIEW latest_ercot_pricing AS
+SELECT DISTINCT ON (settlement_point)
+    settlement_point,
+    ts,
+    price_per_mwh
+FROM ercot_pricing
+ORDER BY settlement_point, ts DESC;
+
+-- Daily average pricing (useful for trend charts)
+CREATE OR REPLACE VIEW daily_avg_ercot_pricing AS
+SELECT
+    date_trunc('day', ts)                                   AS day,
+    settlement_point,
+    AVG(price_per_mwh)                                      AS avg_price,
+    MIN(price_per_mwh)                                      AS min_price,
+    MAX(price_per_mwh)                                      AS max_price,
+    COUNT(*) FILTER (WHERE price_per_mwh < 0)               AS negative_hours
+FROM ercot_pricing
+GROUP BY date_trunc('day', ts), settlement_point
+ORDER BY day DESC;
+
+-- Latest generation snapshot per fuel type
+CREATE OR REPLACE VIEW latest_ercot_generation AS
+SELECT DISTINCT ON (fuel_type)
+    fuel_type,
+    ts,
+    output_mw,
+    forecast_mw
+FROM ercot_generation
+ORDER BY fuel_type, ts DESC;
+
 -- Site intelligence summary
 CREATE OR REPLACE VIEW site_dashboard AS
 SELECT
