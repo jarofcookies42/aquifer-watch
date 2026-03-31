@@ -25,6 +25,7 @@ const sitesLayer = L.layerGroup().addTo(map);
 const wellsLayer = L.layerGroup().addTo(map);
 const ercotLayer = L.layerGroup().addTo(map);
 const reservoirsLayer = L.layerGroup().addTo(map);
+const droughtLayer = L.layerGroup().addTo(map);
 
 // Site marker icons
 const siteIcon = (status) => {
@@ -1008,6 +1009,384 @@ function drawGenerationChart(data) {
 }
 
 // ---------------------------------------------------------------------------
+// Drought color scale
+// ---------------------------------------------------------------------------
+
+// D0-D4 colors match US Drought Monitor convention (yellows → reds → dark brown)
+const DROUGHT_COLORS = {
+    None: '#1e293b',  // no drought — dark slate (map background)
+    D0:   '#ffff00',  // abnormally dry — yellow
+    D1:   '#fcd34d',  // moderate — amber
+    D2:   '#f97316',  // severe — orange
+    D3:   '#dc2626',  // extreme — red
+    D4:   '#7f1d1d',  // exceptional — dark red
+};
+
+const DROUGHT_LABELS = {
+    None: 'No Drought',
+    D0:   'D0 Abnormally Dry',
+    D1:   'D1 Moderate',
+    D2:   'D2 Severe',
+    D3:   'D3 Extreme',
+    D4:   'D4 Exceptional',
+};
+
+// Badge colors for the sidebar worst-category badge
+const DROUGHT_BADGE_STYLE = {
+    None: { bg: '#374151', color: '#9ca3af' },
+    D0:   { bg: '#854d0e', color: '#fef08a' },
+    D1:   { bg: '#92400e', color: '#fcd34d' },
+    D2:   { bg: '#c2410c', color: '#fed7aa' },
+    D3:   { bg: '#991b1b', color: '#fca5a5' },
+    D4:   { bg: '#7f1d1d', color: '#fca5a5' },
+};
+
+// ---------------------------------------------------------------------------
+// Drought county overlay (choropleth)
+// ---------------------------------------------------------------------------
+
+// FIPS → worst drought category from latest_drought API response
+let droughtByFips = {};
+
+async function loadDroughtOverlay() {
+    // Fetch current drought status
+    let droughtData;
+    try {
+        droughtData = await fetchJSON('/api/drought/current');
+    } catch (err) {
+        console.error('Drought API error:', err);
+        return;
+    }
+
+    // Build fips → record lookup
+    droughtByFips = {};
+    for (const rec of droughtData) {
+        droughtByFips[rec.county_fips] = rec;
+    }
+
+    if (Object.keys(droughtByFips).length === 0) return;
+
+    // Fetch Texas county boundaries from Census TIGERweb for tracked FIPS codes
+    const fipsList = Object.keys(droughtByFips).map(f => `'${f}'`).join(',');
+    const tigerUrl =
+        'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query' +
+        `?where=STATEFP%3D'48'+AND+GEOID+IN+(${encodeURIComponent(fipsList)})` +
+        '&outFields=GEOID,NAME&outSR=4326&f=geojson';
+
+    let countyGeo;
+    try {
+        const resp = await fetch(tigerUrl);
+        countyGeo = await resp.json();
+    } catch (err) {
+        console.error('County boundary fetch error:', err);
+        return;
+    }
+
+    droughtLayer.clearLayers();
+
+    L.geoJSON(countyGeo, {
+        style: (feature) => {
+            const fips = feature.properties.GEOID;
+            const rec = droughtByFips[fips];
+            const category = rec ? (rec.worst_category || 'None') : 'None';
+            const color = DROUGHT_COLORS[category] || DROUGHT_COLORS.None;
+            return {
+                fillColor: color,
+                fillOpacity: category === 'None' ? 0.08 : 0.45,
+                color: '#334155',
+                weight: 0.8,
+            };
+        },
+        onEachFeature: (feature, layer) => {
+            const fips = feature.properties.GEOID;
+            const rec = droughtByFips[fips];
+            const name = feature.properties.NAME;
+            if (rec) {
+                const d1plus = ((rec.d1_pct || 0) + (rec.d2_pct || 0) +
+                                (rec.d3_pct || 0) + (rec.d4_pct || 0)).toFixed(1);
+                layer.bindPopup(
+                    `<strong>${name} County</strong><br>` +
+                    `As of: ${rec.valid_date}<br>` +
+                    `Worst: <b>${rec.worst_category || 'None'}</b><br>` +
+                    `D1+ coverage: ${d1plus}%<br>` +
+                    `D0 ${(rec.d0_pct || 0).toFixed(1)}% | ` +
+                    `D1 ${(rec.d1_pct || 0).toFixed(1)}% | ` +
+                    `D2 ${(rec.d2_pct || 0).toFixed(1)}%`
+                );
+            } else {
+                layer.bindPopup(`<strong>${name} County</strong><br>No drought data`);
+            }
+        },
+    }).addTo(droughtLayer);
+
+    // Add legend to map (bottom right)
+    addDroughtMapLegend();
+}
+
+function addDroughtMapLegend() {
+    if (window._droughtLegendControl) {
+        map.removeControl(window._droughtLegendControl);
+    }
+
+    const legend = L.control({ position: 'bottomright' });
+    legend.onAdd = () => {
+        const div = L.DomUtil.create('div', 'drought-legend');
+        div.innerHTML = '<h4>Drought</h4>' +
+            Object.entries(DROUGHT_LABELS).map(([cat, label]) =>
+                `<div><i style="background:${cat === 'None' ? '#475569' : DROUGHT_COLORS[cat]}"></i>${label}</div>`
+            ).join('');
+        return div;
+    };
+    legend.addTo(map);
+    window._droughtLegendControl = legend;
+}
+
+// ---------------------------------------------------------------------------
+// Drought sidebar panel
+// ---------------------------------------------------------------------------
+
+async function loadDroughtSummary() {
+    let data;
+    try {
+        data = await fetchJSON('/api/drought/summary');
+    } catch (err) {
+        console.error('Drought summary error:', err);
+        return;
+    }
+
+    const metaEl = document.getElementById('drought-meta');
+    const barEl = document.getElementById('drought-bar');
+    const legendEl = document.getElementById('drought-legend-inline');
+    const badgeEl = document.getElementById('drought-worst-badge');
+
+    if (!data.valid_date) {
+        metaEl.textContent = 'No drought data available.';
+        return;
+    }
+
+    // Format date
+    const d = new Date(data.valid_date);
+    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    metaEl.textContent = `${data.county_count} counties · week of ${dateStr}`;
+
+    // Worst badge
+    const worst = data.worst_regional || 'None';
+    const bs = DROUGHT_BADGE_STYLE[worst] || DROUGHT_BADGE_STYLE.None;
+    badgeEl.textContent = worst;
+    badgeEl.style.background = bs.bg;
+    badgeEl.style.color = bs.color;
+
+    // Stacked bar
+    const avg = data.regional_avg || {};
+    const segments = [
+        { key: 'no_drought_pct', color: '#1e3a5f', label: 'None' },
+        { key: 'd0_pct',         color: DROUGHT_COLORS.D0, label: 'D0' },
+        { key: 'd1_pct',         color: DROUGHT_COLORS.D1, label: 'D1' },
+        { key: 'd2_pct',         color: DROUGHT_COLORS.D2, label: 'D2' },
+        { key: 'd3_pct',         color: DROUGHT_COLORS.D3, label: 'D3' },
+        { key: 'd4_pct',         color: DROUGHT_COLORS.D4, label: 'D4' },
+    ];
+
+    barEl.innerHTML = '';
+    legendEl.innerHTML = '';
+
+    for (const seg of segments) {
+        const pct = avg[seg.key] || 0;
+        if (pct < 0.1) continue;
+
+        const div = document.createElement('div');
+        div.style.width = pct + '%';
+        div.style.background = seg.color;
+        div.title = `${seg.label}: ${pct.toFixed(1)}%`;
+        barEl.appendChild(div);
+
+        const span = document.createElement('span');
+        span.innerHTML =
+            `<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${seg.color};margin-right:3px;vertical-align:middle"></span>` +
+            `${seg.label} ${pct.toFixed(1)}%`;
+        legendEl.appendChild(span);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Drought trend chart (% of counties in D1+ each week)
+// ---------------------------------------------------------------------------
+
+async function loadDroughtTrendChart() {
+    let history;
+    try {
+        history = await fetchJSON('/api/drought/history?weeks=52');
+    } catch (err) {
+        console.error('Drought history error:', err);
+        return;
+    }
+
+    if (!history.length) return;
+
+    // Aggregate by valid_date: average D1+ across all counties
+    const byDate = {};
+    for (const rec of history) {
+        const d = rec.valid_date;
+        if (!byDate[d]) byDate[d] = { d1plus: [], d2plus: [] };
+        const d1p = (rec.d1_pct || 0) + (rec.d2_pct || 0) + (rec.d3_pct || 0) + (rec.d4_pct || 0);
+        const d2p = (rec.d2_pct || 0) + (rec.d3_pct || 0) + (rec.d4_pct || 0);
+        byDate[d].d1plus.push(d1p);
+        byDate[d].d2plus.push(d2p);
+    }
+
+    const dates = Object.keys(byDate).sort();
+    const chartData = dates.map(d => ({
+        date: d,
+        d1plus: byDate[d].d1plus.reduce((a, b) => a + b, 0) / byDate[d].d1plus.length,
+        d2plus: byDate[d].d2plus.reduce((a, b) => a + b, 0) / byDate[d].d2plus.length,
+    }));
+
+    drawDroughtChart(chartData);
+}
+
+function drawDroughtChart(data) {
+    const canvas = document.getElementById('drought-chart');
+    if (!canvas || !data.length) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = 160 * dpr;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = '160px';
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = 160;
+    const pad = { top: 16, right: 12, bottom: 28, left: 40 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, W, H);
+
+    const xScale = (i) => pad.left + (i / Math.max(data.length - 1, 1)) * plotW;
+    const yScale = (v) => pad.top + plotH - (v / 100) * plotH;
+
+    // Grid lines at 25, 50, 75, 100%
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#475569';
+    ctx.font = `${10 * dpr / dpr}px -apple-system, sans-serif`;
+    ctx.textAlign = 'right';
+    for (const pct of [0, 25, 50, 75, 100]) {
+        const y = yScale(pct);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillText(pct + '%', pad.left - 4, y + 4);
+    }
+
+    // X axis labels — show ~6 evenly spaced dates
+    ctx.fillStyle = '#475569';
+    ctx.textAlign = 'center';
+    const step = Math.max(1, Math.floor(data.length / 6));
+    data.forEach((d, i) => {
+        if (i % step === 0 || i === data.length - 1) {
+            const dateStr = new Date(d.date + 'T00:00:00Z')
+                .toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+            ctx.fillText(dateStr, xScale(i), H - pad.bottom + 14);
+        }
+    });
+
+    // D1+ filled area
+    ctx.fillStyle = '#f9731620';
+    ctx.beginPath();
+    data.forEach((d, i) => ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(d.d1plus)));
+    ctx.lineTo(xScale(data.length - 1), yScale(0));
+    ctx.lineTo(xScale(0), yScale(0));
+    ctx.closePath();
+    ctx.fill();
+
+    // D1+ line
+    ctx.strokeStyle = '#f97316';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    data.forEach((d, i) => ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(d.d1plus)));
+    ctx.stroke();
+
+    // D2+ filled area (darker)
+    ctx.fillStyle = '#dc262620';
+    ctx.beginPath();
+    data.forEach((d, i) => ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(d.d2plus)));
+    ctx.lineTo(xScale(data.length - 1), yScale(0));
+    ctx.lineTo(xScale(0), yScale(0));
+    ctx.closePath();
+    ctx.fill();
+
+    // D2+ line
+    ctx.strokeStyle = '#dc2626';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    data.forEach((d, i) => ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(d.d2plus)));
+    ctx.stroke();
+
+    // Legend in top-right corner of chart
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    const lx = W - pad.right - 80;
+    const ly = pad.top + 4;
+    ctx.strokeStyle = '#f97316'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lx, ly + 5); ctx.lineTo(lx + 14, ly + 5); ctx.stroke();
+    ctx.fillStyle = '#94a3b8'; ctx.fillText('D1+', lx + 17, ly + 9);
+    ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(lx + 36, ly + 5); ctx.lineTo(lx + 50, ly + 5); ctx.stroke();
+    ctx.fillText('D2+', lx + 53, ly + 9);
+}
+
+// ---------------------------------------------------------------------------
+// Weather panel
+// ---------------------------------------------------------------------------
+
+async function loadWeatherPanel() {
+    let data;
+    try {
+        data = await fetchJSON('/api/weather/current');
+    } catch (err) {
+        console.error('Weather API error:', err);
+        return;
+    }
+
+    const gridEl = document.getElementById('weather-grid');
+    if (!data.length) {
+        gridEl.innerHTML = '<div style="font-size:0.8rem;color:#64748b">No weather data available.</div>';
+        return;
+    }
+
+    const stationLabels = {
+        KLBB: 'Lubbock',
+        KAMA: 'Amarillo',
+        KCDS: 'Childress',
+        KBPG: 'Big Spring',
+    };
+
+    gridEl.innerHTML = data.map(obs => {
+        const label = stationLabels[obs.station_id] || obs.station_id;
+        const temp = obs.temperature_f != null ? Math.round(obs.temperature_f) : '--';
+        const rh = obs.humidity_pct != null ? Math.round(obs.humidity_pct) : '--';
+        const wind = obs.wind_speed_mph != null ? Math.round(obs.wind_speed_mph) : '--';
+        const cond = obs.conditions || '';
+
+        return `
+            <div class="weather-station">
+                <div class="ws-name">${label}</div>
+                <div class="ws-temp">${temp}<span>°F</span></div>
+                <div class="ws-detail">RH ${rh}% · Wind ${wind} mph</div>
+                <div class="ws-cond">${cond}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ---------------------------------------------------------------------------
 // Water impact calculator
 // ---------------------------------------------------------------------------
 
@@ -1046,11 +1425,16 @@ document.getElementById('calc-cooling').addEventListener('change', updateCalc);
             loadErcotMapLayer(),
             loadReservoirSummary(),
             loadEnergyPanel(),
+            loadWeatherPanel(),
+            loadDroughtSummary(),
+            loadDroughtTrendChart(),
+            loadDroughtOverlay(),
         ]);
         updateCalc();
 
         // Layer toggle control
         L.control.layers(null, {
+            'Drought Overlay': droughtLayer,
             'Ogallala Wells': wellsLayer,
             'ERCOT Gen Queue': ercotLayer,
             'DC Sites': sitesLayer,

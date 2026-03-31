@@ -210,6 +210,56 @@
         .res-chart-section .chart-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
         #res-chart { width: 100%; height: 160px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
 
+        /* Drought severity overlay legend */
+        .drought-legend {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 0.75rem;
+            color: #e2e8f0;
+            line-height: 1.8;
+        }
+        .drought-legend h4 { font-size: 0.8rem; color: #94a3b8; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        .drought-legend i { width: 14px; height: 14px; display: inline-block; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+
+        /* Weather panel */
+        .weather-panel { padding: 16px; border-bottom: 1px solid #334155; }
+        .weather-panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+        .weather-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .weather-station {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .weather-station .ws-name { font-size: 0.7rem; color: #64748b; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .weather-station .ws-temp { font-size: 1.4rem; font-weight: 700; color: #f1f5f9; }
+        .weather-station .ws-temp span { font-size: 0.75rem; font-weight: 400; color: #94a3b8; }
+        .weather-station .ws-detail { font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }
+        .weather-station .ws-cond { font-size: 0.7rem; color: #64748b; margin-top: 3px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Drought status panel */
+        .drought-panel { padding: 16px; border-bottom: 1px solid #334155; }
+        .drought-panel h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .drought-summary-bar { display: flex; height: 20px; border-radius: 5px; overflow: hidden; margin: 8px 0 6px; }
+        .drought-summary-bar div { transition: width 0.4s; }
+        .drought-meta { font-size: 0.75rem; color: #64748b; margin-bottom: 10px; }
+        .drought-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 6px;
+            margin-left: 6px;
+        }
+
+        /* Drought trend chart */
+        .drought-chart-section { padding: 16px; border-bottom: 1px solid #334155; }
+        .drought-chart-section h2 { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+        .drought-chart-section .chart-subtitle { font-size: 0.7rem; color: #64748b; margin-bottom: 10px; font-style: italic; }
+        #drought-chart { width: 100%; height: 160px; background: #0f172a; border-radius: 8px; border: 1px solid #334155; }
+
         .leaflet-control-layers {
             background: #1e293b !important;
             border: 1px solid #334155 !important;
@@ -295,6 +345,26 @@
                 <h2>Aquifer Level Trend</h2>
                 <div class="chart-subtitle">Avg. depth to water near site (TWDB groundwater database measurements)</div>
                 <canvas id="wl-chart"></canvas>
+            </div>
+            <div class="weather-panel">
+                <h2>Current Weather</h2>
+                <div class="weather-grid" id="weather-grid">
+                    <div class="weather-station" style="opacity:0.4"><div class="ws-name">Loading...</div><div class="ws-temp">--<span>°F</span></div></div>
+                </div>
+            </div>
+            <div class="drought-panel">
+                <h2>
+                    Drought Status
+                    <span class="drought-badge" id="drought-worst-badge" style="background:#374151;color:#9ca3af">--</span>
+                </h2>
+                <div class="drought-meta" id="drought-meta">Loading...</div>
+                <div class="drought-summary-bar" id="drought-bar"></div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:0.7rem;color:#94a3b8" id="drought-legend-inline"></div>
+            </div>
+            <div class="drought-chart-section">
+                <h2>Drought Trend</h2>
+                <div class="chart-subtitle">% of West Texas counties in drought (D1+) — last 52 weeks</div>
+                <canvas id="drought-chart"></canvas>
             </div>
             <div class="ercot-panel">
                 <h2>ERCOT Generation Queue</h2>
