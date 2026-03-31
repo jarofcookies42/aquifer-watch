@@ -340,6 +340,119 @@ SELECT DISTINCT ON (well_id)
 FROM water_levels
 ORDER BY well_id, measured_at DESC;
 
+-- ============================================================
+-- Phase 4: Weather & Drought Data
+-- ============================================================
+
+-- Extend data_source enum with new sources
+DO $$ BEGIN ALTER TYPE data_source ADD VALUE IF NOT EXISTS 'noaa_nws';        EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TYPE data_source ADD VALUE IF NOT EXISTS 'drought_monitor';  EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TYPE data_source ADD VALUE IF NOT EXISTS 'twdb_evaporation'; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+-- Weather observations from NOAA National Weather Service
+CREATE TABLE IF NOT EXISTS weather_observations (
+    id                  SERIAL PRIMARY KEY,
+    station_id          TEXT NOT NULL,          -- ICAO station code, e.g. "KLBB"
+    station_name        TEXT,
+    observed_at         TIMESTAMPTZ NOT NULL,
+    temperature_f       NUMERIC,
+    dewpoint_f          NUMERIC,
+    humidity_pct        NUMERIC,
+    wind_speed_mph      NUMERIC,
+    wind_direction_deg  INTEGER,
+    wind_gust_mph       NUMERIC,
+    precip_last_hour_in NUMERIC,
+    precip_last_6hr_in  NUMERIC,
+    precip_last_24hr_in NUMERIC,
+    visibility_miles    NUMERIC,
+    pressure_mb         NUMERIC,
+    conditions          TEXT,                   -- e.g. "Partly Cloudy"
+    raw_json            JSONB,
+    ingested_at         TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (station_id, observed_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wx_station_time ON weather_observations(station_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wx_time ON weather_observations(observed_at DESC);
+
+-- US Drought Monitor weekly county-level drought status
+CREATE TABLE IF NOT EXISTS drought_status (
+    id              SERIAL PRIMARY KEY,
+    county_fips     TEXT NOT NULL,          -- 5-digit FIPS, e.g. "48303"
+    county_name     TEXT,
+    state_abbr      TEXT DEFAULT 'TX',
+    valid_date      DATE NOT NULL,          -- Tuesday release date
+    d0_pct          NUMERIC,               -- Abnormally Dry (% of county area)
+    d1_pct          NUMERIC,               -- Moderate Drought
+    d2_pct          NUMERIC,               -- Severe Drought
+    d3_pct          NUMERIC,               -- Extreme Drought
+    d4_pct          NUMERIC,               -- Exceptional Drought
+    no_drought_pct  NUMERIC,               -- No drought
+    worst_category  TEXT,                  -- "None", "D0", "D1", "D2", "D3", "D4"
+    ingested_at     TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (county_fips, valid_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drought_county_date ON drought_status(county_fips, valid_date DESC);
+CREATE INDEX IF NOT EXISTS idx_drought_date ON drought_status(valid_date DESC);
+
+-- TWDB evaporation data for tracked reservoirs (monthly/annual rates)
+CREATE TABLE IF NOT EXISTS reservoir_evaporation (
+    id                  SERIAL PRIMARY KEY,
+    reservoir_name      TEXT NOT NULL,
+    reservoir_id        TEXT,              -- TWDB reservoir identifier
+    county              TEXT,
+    period_type         TEXT DEFAULT 'monthly',   -- "monthly" or "annual"
+    period_start        DATE NOT NULL,
+    period_end          DATE,
+    evaporation_rate_in NUMERIC,          -- inches
+    evaporation_af      NUMERIC,          -- acre-feet
+    surface_area_acres  NUMERIC,
+    raw_json            JSONB,
+    ingested_at         TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (reservoir_id, period_start, period_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_evap_reservoir ON reservoir_evaporation(reservoir_name, period_start DESC);
+
+-- ============================================================
+-- Phase 4 convenience views
+-- ============================================================
+
+-- Latest weather reading per station
+CREATE OR REPLACE VIEW latest_weather AS
+SELECT DISTINCT ON (station_id)
+    station_id,
+    station_name,
+    observed_at,
+    temperature_f,
+    dewpoint_f,
+    humidity_pct,
+    wind_speed_mph,
+    wind_direction_deg,
+    wind_gust_mph,
+    precip_last_24hr_in,
+    conditions
+FROM weather_observations
+ORDER BY station_id, observed_at DESC;
+
+-- Latest drought status per county
+CREATE OR REPLACE VIEW latest_drought AS
+SELECT DISTINCT ON (county_fips)
+    county_fips,
+    county_name,
+    state_abbr,
+    valid_date,
+    d0_pct,
+    d1_pct,
+    d2_pct,
+    d3_pct,
+    d4_pct,
+    no_drought_pct,
+    worst_category
+FROM drought_status
+ORDER BY county_fips, valid_date DESC;
+
 -- Site intelligence summary
 CREATE OR REPLACE VIEW site_dashboard AS
 SELECT

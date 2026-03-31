@@ -398,6 +398,159 @@ def water_impact(
 
 
 # ---------------------------------------------------------------------------
+# Weather routes
+# ---------------------------------------------------------------------------
+
+@app.get("/api/weather/current")
+def weather_current():
+    """Latest weather observation for each tracked station."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT station_id, station_name, observed_at,
+                       temperature_f, dewpoint_f, humidity_pct,
+                       wind_speed_mph, wind_direction_deg, wind_gust_mph,
+                       precip_last_24hr_in, visibility_miles, pressure_mb,
+                       conditions
+                FROM latest_weather
+                ORDER BY station_id
+            """)
+            return cur.fetchall()
+
+
+@app.get("/api/weather/history")
+def weather_history(
+    station: Optional[str] = Query(None, description="Station ID, e.g. KLBB"),
+    hours: int = Query(72, le=720, description="Hours of history to return"),
+):
+    """Historical weather observations, optionally filtered by station."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            conditions = ["observed_at >= now() - interval '1 hour' * %(hours)s"]
+            params: dict = {"hours": hours}
+
+            if station:
+                conditions.append("station_id = %(station)s")
+                params["station"] = station.upper()
+
+            cur.execute(f"""
+                SELECT station_id, station_name, observed_at,
+                       temperature_f, humidity_pct, wind_speed_mph,
+                       wind_direction_deg, precip_last_hour_in,
+                       precip_last_24hr_in, conditions
+                FROM weather_observations
+                WHERE {' AND '.join(conditions)}
+                ORDER BY station_id, observed_at DESC
+            """, params)
+            return cur.fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Drought routes
+# ---------------------------------------------------------------------------
+
+@app.get("/api/drought/current")
+def drought_current():
+    """Latest drought status for all tracked counties."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT county_fips, county_name, state_abbr, valid_date,
+                       d0_pct, d1_pct, d2_pct, d3_pct, d4_pct,
+                       no_drought_pct, worst_category
+                FROM latest_drought
+                ORDER BY county_name
+            """)
+            return cur.fetchall()
+
+
+@app.get("/api/drought/history")
+def drought_history(
+    fips: Optional[str] = Query(None, description="5-digit county FIPS code"),
+    weeks: int = Query(52, le=260, description="Weeks of history to return"),
+):
+    """Drought status time series, optionally filtered to one county."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            conditions = ["valid_date >= current_date - (%(weeks)s * interval '1 week')"]
+            params: dict = {"weeks": weeks}
+
+            if fips:
+                conditions.append("county_fips = %(fips)s")
+                params["fips"] = fips
+
+            cur.execute(f"""
+                SELECT county_fips, county_name, valid_date,
+                       d0_pct, d1_pct, d2_pct, d3_pct, d4_pct,
+                       no_drought_pct, worst_category
+                FROM drought_status
+                WHERE {' AND '.join(conditions)}
+                ORDER BY county_fips, valid_date DESC
+            """, params)
+            return cur.fetchall()
+
+
+@app.get("/api/drought/summary")
+def drought_summary():
+    """
+    Regional drought overview: average percent of area in each drought
+    category across all tracked counties, for the most recent week.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Latest valid date across all counties
+            cur.execute("SELECT MAX(valid_date) AS latest FROM drought_status")
+            row = cur.fetchone()
+            if not row or not row["latest"]:
+                return {"valid_date": None, "counties": [], "regional_avg": {}}
+
+            latest_date = row["latest"]
+
+            cur.execute("""
+                SELECT county_fips, county_name, valid_date,
+                       d0_pct, d1_pct, d2_pct, d3_pct, d4_pct,
+                       no_drought_pct, worst_category
+                FROM drought_status
+                WHERE valid_date = %(date)s
+                ORDER BY county_name
+            """, {"date": latest_date})
+            counties = cur.fetchall()
+
+            # Regional averages
+            if counties:
+                def _avg(key: str) -> float:
+                    vals = [float(c[key] or 0) for c in counties]
+                    return round(sum(vals) / len(vals), 1)
+
+                regional_avg = {
+                    "no_drought_pct": _avg("no_drought_pct"),
+                    "d0_pct":         _avg("d0_pct"),
+                    "d1_pct":         _avg("d1_pct"),
+                    "d2_pct":         _avg("d2_pct"),
+                    "d3_pct":         _avg("d3_pct"),
+                    "d4_pct":         _avg("d4_pct"),
+                }
+
+                # Worst category seen in any county
+                severity_rank = {"None": 0, "D0": 1, "D1": 2, "D2": 3, "D3": 4, "D4": 5}
+                worst_regional = max(
+                    (c["worst_category"] or "None" for c in counties),
+                    key=lambda x: severity_rank.get(x, 0),
+                )
+            else:
+                regional_avg = {}
+                worst_regional = "None"
+
+            return {
+                "valid_date": latest_date,
+                "county_count": len(counties),
+                "counties": counties,
+                "regional_avg": regional_avg,
+                "worst_regional": worst_regional,
+            }
+
+
+# ---------------------------------------------------------------------------
 # Serve frontend
 # ---------------------------------------------------------------------------
 
