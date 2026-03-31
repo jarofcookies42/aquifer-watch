@@ -340,6 +340,185 @@ SELECT DISTINCT ON (well_id)
 FROM water_levels
 ORDER BY well_id, measured_at DESC;
 
+-- ============================================================
+-- Surface Water: Reservoirs
+-- ============================================================
+
+-- Extend data_source enum for new ingestion sources (safe to re-run)
+DO $$ BEGIN
+    ALTER TYPE data_source ADD VALUE 'twdb_wdft';
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    ALTER TYPE data_source ADD VALUE 'usgs_nwis';
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS reservoirs (
+    id                          SERIAL PRIMARY KEY,
+    name                        TEXT NOT NULL UNIQUE,
+    slug                        TEXT UNIQUE,             -- WDFT URL identifier
+    county                      TEXT NOT NULL,
+    location                    GEOMETRY(Point, 4326),
+    managing_authority          TEXT,
+    conservation_storage_acft   NUMERIC,                 -- full pool storage capacity
+    dead_pool_acft              NUMERIC,                 -- minimum operable pool
+    surface_area_acres          NUMERIC,                 -- at conservation pool
+    usgs_site_no                TEXT,                    -- USGS NWIS gauge ID if monitored
+    wdft_reservoir_id           TEXT,                    -- Water Data for Texas reservoir ID
+    notes                       TEXT,
+    created_at                  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reservoirs_location ON reservoirs USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_reservoirs_county ON reservoirs(county);
+CREATE INDEX IF NOT EXISTS idx_reservoirs_slug ON reservoirs(slug);
+
+-- Seed the eight target reservoirs (safe to re-run)
+INSERT INTO reservoirs (
+    name, slug, county, location, managing_authority,
+    conservation_storage_acft, dead_pool_acft, surface_area_acres,
+    usgs_site_no, wdft_reservoir_id, notes
+) VALUES
+    ('Lake Meredith',
+     'lake-meredith',
+     'Potter/Hutchinson/Moore',
+     ST_SetSRID(ST_MakePoint(-101.567, 35.643), 4326),
+     'Bureau of Reclamation / Canadian River Municipal Water Authority',
+     863000, 14000, 21613,
+     '07227500', 'meredith',
+     'Federal reservoir on Canadian River. Primary municipal supply for Amarillo region. Storage well below design capacity due to sedimentation and drought.'),
+
+    ('Lake Alan Henry',
+     'lake-alan-henry',
+     'Garza',
+     ST_SetSRID(ST_MakePoint(-101.044, 33.017), 4326),
+     'City of Lubbock',
+     116600, 0, 2880,
+     NULL, 'alan-henry',
+     'Lubbock primary backup water supply on Double Mountain Fork Brazos River. Completed 1994.'),
+
+    ('Lake J.B. Thomas',
+     'lake-jb-thomas',
+     'Scurry/Mitchell/Howard',
+     ST_SetSRID(ST_MakePoint(-101.096, 32.558), 4326),
+     'Colorado River Municipal Water District',
+     204000, 0, 7820,
+     NULL, 'jb-thomas',
+     'CRMWD supply reservoir on Colorado River. Serves Midland, Odessa, Big Spring.'),
+
+    ('O.H. Ivie Reservoir',
+     'o-h-ivie',
+     'Concho/Coleman/McCulloch',
+     ST_SetSRID(ST_MakePoint(-99.707, 31.553), 4326),
+     'Colorado River Municipal Water District',
+     554000, 0, 19149,
+     NULL, 'o-h-ivie',
+     'Largest CRMWD reservoir. Critical supply for Midland, Odessa, Big Spring, San Angelo region.'),
+
+    ('White River Lake',
+     'white-river-lake',
+     'Crosby',
+     ST_SetSRID(ST_MakePoint(-100.837, 33.430), 4326),
+     'White River Municipal Water District',
+     13756, 0, 1410,
+     NULL, 'white-river',
+     'Serves several small Panhandle communities. Sensitive to drought — frequently at low levels.'),
+
+    ('Mackenzie Reservoir',
+     'mackenzie-reservoir',
+     'Briscoe',
+     ST_SetSRID(ST_MakePoint(-100.887, 34.270), 4326),
+     'Mackenzie Municipal Water Authority',
+     46200, 0, 1025,
+     NULL, 'mackenzie',
+     'Serves Lubbock supplemental supply, Floydada, Lockney, and surrounding communities on Tule Creek.'),
+
+    ('Greenbelt Lake',
+     'greenbelt-lake',
+     'Donley',
+     ST_SetSRID(ST_MakePoint(-100.678, 34.797), 4326),
+     'Greenbelt Municipal & Industrial Water Authority',
+     37370, 0, 1987,
+     NULL, 'greenbelt',
+     'Serves Clarendon and surrounding Donley/Hall counties on Salt Fork Red River.'),
+
+    ('Palo Duro Reservoir',
+     'palo-duro-reservoir',
+     'Hansford',
+     ST_SetSRID(ST_MakePoint(-101.224, 36.467), 4326),
+     'North Canadian River Municipal Water Authority',
+     47070, 0, 2410,
+     NULL, 'palo-duro',
+     'Northernmost Texas Panhandle reservoir. Serves Spearman, Gruver, and nearby communities.')
+ON CONFLICT (name) DO NOTHING;
+
+-- ============================================================
+-- Surface Water: Reservoir level time-series (hypertable)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS reservoir_levels (
+    reservoir_id                INTEGER NOT NULL REFERENCES reservoirs(id),
+    measured_at                 TIMESTAMPTZ NOT NULL,
+    percent_full                NUMERIC,                 -- % of conservation storage
+    conservation_storage_acft   NUMERIC,                 -- measured storage (acre-feet)
+    water_elevation_ft          NUMERIC,                 -- elevation above NGVD 1929 / NAVD 88
+    source                      TEXT NOT NULL,           -- 'twdb_wdft', 'usgs_nwis', 'manual'
+    ingested_at                 TIMESTAMPTZ DEFAULT now()
+);
+
+-- TimescaleDB hypertable (falls back to regular table if TimescaleDB unavailable)
+DO $$ BEGIN
+    PERFORM create_hypertable('reservoir_levels', 'measured_at', if_not_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TimescaleDB not available, reservoir_levels remains a regular table';
+END $$;
+
+-- Unique constraint: one record per reservoir per day per source
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rl_unique ON reservoir_levels(reservoir_id, measured_at, source);
+CREATE INDEX IF NOT EXISTS idx_rl_reservoir_time ON reservoir_levels(reservoir_id, measured_at DESC);
+
+-- ============================================================
+-- Convenience views for reservoirs
+-- ============================================================
+
+-- Latest level per reservoir (most recent measurement)
+CREATE OR REPLACE VIEW latest_reservoir_levels AS
+SELECT DISTINCT ON (rl.reservoir_id)
+    rl.reservoir_id,
+    r.name,
+    r.slug,
+    r.county,
+    r.managing_authority,
+    r.conservation_storage_acft   AS capacity_acft,
+    ST_Y(r.location)              AS lat,
+    ST_X(r.location)              AS lon,
+    rl.measured_at,
+    rl.percent_full,
+    rl.conservation_storage_acft  AS current_storage_acft,
+    rl.water_elevation_ft,
+    rl.source
+FROM reservoir_levels rl
+JOIN reservoirs r ON r.id = rl.reservoir_id
+ORDER BY rl.reservoir_id, rl.measured_at DESC;
+
+-- Reservoirs near tracked data center sites (within 100 miles)
+CREATE OR REPLACE VIEW reservoirs_near_sites AS
+SELECT
+    r.id   AS reservoir_id,
+    r.name AS reservoir_name,
+    r.slug,
+    r.county,
+    s.id   AS site_id,
+    s.name AS site_name,
+    s.project_code,
+    ST_Distance(r.location::geography, s.location::geography) / 1609.34 AS distance_miles
+FROM reservoirs r
+CROSS JOIN dc_sites s
+WHERE ST_DWithin(r.location::geography, s.location::geography, 160934)  -- 100 miles in meters
+ORDER BY s.id, distance_miles;
+
 -- Site intelligence summary
 CREATE OR REPLACE VIEW site_dashboard AS
 SELECT

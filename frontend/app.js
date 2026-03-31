@@ -24,6 +24,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 const sitesLayer = L.layerGroup().addTo(map);
 const wellsLayer = L.layerGroup().addTo(map);
 const ercotLayer = L.layerGroup().addTo(map);
+const reservoirsLayer = L.layerGroup().addTo(map);
 
 // Site marker icons
 const siteIcon = (status) => {
@@ -430,6 +431,284 @@ async function loadErcotSummary() {
 
 
 // ---------------------------------------------------------------------------
+// Reservoir layer + summary panel
+// ---------------------------------------------------------------------------
+
+let activeReservoirId = null;
+
+/**
+ * Return a colour based on percent-full value for consistent visual coding.
+ * Green ≥ 70%, amber 40-70%, orange 20-40%, red < 20%, grey = unknown.
+ */
+function reservoirColor(pct) {
+    if (pct == null) return '#6b7280';
+    if (pct >= 70)   return '#22c55e';
+    if (pct >= 40)   return '#f59e0b';
+    if (pct >= 20)   return '#f97316';
+    return '#ef4444';
+}
+
+function pctClass(pct) {
+    if (pct == null) return 'pct-unknown';
+    if (pct >= 70)   return 'pct-full';
+    if (pct >= 50)   return 'pct-good';
+    if (pct >= 30)   return 'pct-medium';
+    if (pct >= 15)   return 'pct-low';
+    return 'pct-critical';
+}
+
+/** Reservoir icon — diamond shape, coloured by percent-full. */
+function reservoirIcon(pct) {
+    const color = reservoirColor(pct);
+    return L.divIcon({
+        className: '',
+        html: `<div style="
+            width: 16px; height: 16px;
+            background: ${color};
+            border: 2px solid #fff;
+            border-radius: 3px;
+            transform: rotate(45deg);
+            box-shadow: 0 0 8px ${color}99;
+        "></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+    });
+}
+
+async function loadReservoirSummary() {
+    let data;
+    try {
+        data = await fetchJSON('/api/reservoir-summary');
+    } catch (err) {
+        console.error('Reservoir summary error:', err);
+        return;
+    }
+
+    const { reservoirs, summary } = data;
+
+    // Update aggregate stat row
+    const summaryRow = document.getElementById('res-summary-row');
+    if (summary.statewide_pct_full != null) {
+        document.getElementById('res-stat-pct').textContent =
+            summary.statewide_pct_full.toFixed(1) + '%';
+    }
+    if (summary.total_current_storage_acft) {
+        const acft = summary.total_current_storage_acft;
+        document.getElementById('res-stat-storage').textContent =
+            acft >= 1000000
+                ? (acft / 1000000).toFixed(2) + 'M'
+                : Math.round(acft / 1000) + 'K';
+    }
+    document.getElementById('res-stat-count').textContent = summary.count;
+    summaryRow.style.display = 'flex';
+
+    // Build sidebar cards
+    const listEl = document.getElementById('reservoir-list');
+    listEl.innerHTML = '';
+    reservoirsLayer.clearLayers();
+
+    reservoirs.forEach(res => {
+        const pct = res.percent_full != null ? parseFloat(res.percent_full) : null;
+        const color = reservoirColor(pct);
+        const cls   = pctClass(pct);
+        const pctDisplay = pct != null ? pct.toFixed(1) + '%' : '—';
+
+        // --- Map marker ---
+        if (res.lat && res.lon) {
+            const marker = L.marker([res.lat, res.lon], {
+                icon: reservoirIcon(pct),
+                zIndexOffset: -100,
+            });
+
+            const dateStr = res.measured_at
+                ? new Date(res.measured_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                : 'No data';
+            const storageStr = res.current_storage_acft
+                ? Math.round(res.current_storage_acft).toLocaleString() + ' ac-ft'
+                : 'Unknown';
+
+            marker.bindPopup(`
+                <strong>${res.name}</strong><br>
+                ${res.managing_authority || 'Managing authority unknown'}<br>
+                ${res.county} County<br>
+                <span style="color:${color};font-weight:700">${pctDisplay} full</span>
+                ${pct != null ? `<div style="margin:4px 0;height:4px;background:#1e293b;border-radius:2px"><div style="width:${Math.min(pct,100)}%;height:4px;background:${color};border-radius:2px"></div></div>` : ''}
+                Storage: ${storageStr}<br>
+                <em style="color:#64748b;font-size:0.78rem">As of ${dateStr}</em>
+            `);
+
+            marker.on('click', () => selectReservoir(res.id, res.name));
+            reservoirsLayer.addLayer(marker);
+        }
+
+        // --- Sidebar card ---
+        const card = document.createElement('div');
+        card.className = 'reservoir-card';
+        card.dataset.resId = res.id;
+        card.innerHTML = `
+            <div class="res-info">
+                <div class="res-name">${res.name}</div>
+                <div class="res-meta">${res.county} Co. · ${res.managing_authority ? res.managing_authority.split('/')[0].trim() : 'Unknown'}</div>
+                ${pct != null ? `<div class="pct-bar-wrap"><div class="pct-bar" style="width:${Math.min(pct,100)}%;background:${color}"></div></div>` : ''}
+            </div>
+            <div class="pct-badge">
+                <div class="pct-value ${cls}">${pctDisplay}</div>
+                <div class="pct-label">full</div>
+            </div>
+        `;
+        card.addEventListener('click', () => selectReservoir(res.id, res.name));
+        listEl.appendChild(card);
+    });
+}
+
+async function selectReservoir(reservoirId, name) {
+    activeReservoirId = reservoirId;
+
+    // Highlight active card
+    document.querySelectorAll('.reservoir-card').forEach(c => {
+        c.classList.toggle('active', Number(c.dataset.resId) === reservoirId);
+    });
+
+    // Fly to reservoir
+    try {
+        const res = await fetchJSON(`/api/reservoirs/${reservoirId}`);
+        if (res.lat && res.lon) {
+            map.flyTo([res.lat, res.lon], 10, { duration: 1 });
+        }
+    } catch (err) {
+        console.error('Reservoir detail error:', err);
+    }
+
+    // Load level trend chart
+    await loadReservoirChart(reservoirId, name);
+}
+
+async function loadReservoirChart(reservoirId, name) {
+    const section = document.getElementById('res-chart-section');
+    try {
+        const levels = await fetchJSON(
+            `/api/reservoirs/${reservoirId}/levels?resolution=monthly`
+        );
+        if (!levels.length) {
+            section.style.display = 'none';
+            return;
+        }
+        document.getElementById('res-chart-title').textContent =
+            name + ' — Storage Trend';
+        section.style.display = 'block';
+        drawReservoirChart(levels);
+    } catch (err) {
+        console.error('Reservoir chart error:', err);
+        section.style.display = 'none';
+    }
+}
+
+function drawReservoirChart(data) {
+    const canvas = document.getElementById('res-chart');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width  = rect.width * dpr;
+    canvas.height = 160 * dpr;
+    canvas.style.width  = rect.width + 'px';
+    canvas.style.height = '160px';
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = 160;
+    const pad = { top: 20, right: 16, bottom: 28, left: 44 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, W, H);
+
+    if (!data.length) return;
+
+    const pcts = data.map(d => d.avg_pct_full).filter(v => v != null);
+    if (!pcts.length) return;
+
+    const yMin = 0;
+    const yMax = 100;
+
+    const xScale = i => pad.left + (i / (data.length - 1 || 1)) * plotW;
+    const yScale = v  => pad.top + ((yMax - v) / (yMax - yMin)) * plotH;
+
+    // Grid lines at 25%, 50%, 75%, 100%
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    [0, 25, 50, 75, 100].forEach(val => {
+        const y = yScale(val);
+        ctx.strokeStyle = val === 50 ? '#334155' : '#1e293b';
+        ctx.lineWidth = val === 50 ? 1.5 : 1;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillStyle = '#475569';
+        ctx.fillText(val + '%', pad.left - 4, y + 3);
+    });
+
+    // Area fill under curve
+    ctx.fillStyle = '#06b6d422';
+    ctx.beginPath();
+    let first = true;
+    data.forEach((d, i) => {
+        if (d.avg_pct_full == null) return;
+        const x = xScale(i);
+        const y = yScale(d.avg_pct_full);
+        if (first) { ctx.moveTo(x, y); first = false; }
+        else ctx.lineTo(x, y);
+    });
+    // Close path along bottom
+    ctx.lineTo(xScale(data.length - 1), yScale(0));
+    ctx.lineTo(xScale(0), yScale(0));
+    ctx.closePath();
+    ctx.fill();
+
+    // Line
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    first = true;
+    data.forEach((d, i) => {
+        if (d.avg_pct_full == null) return;
+        const x = xScale(i);
+        const y = yScale(d.avg_pct_full);
+        if (first) { ctx.moveTo(x, y); first = false; }
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // X-axis date labels (monthly data → show year transitions)
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, sans-serif';
+    let lastYear = null;
+    data.forEach((d, i) => {
+        if (!d.period) return;
+        const yr = d.period.slice(0, 4);
+        if (yr !== lastYear && (i === 0 || i === data.length - 1 || lastYear !== null)) {
+            ctx.fillText(yr, xScale(i), H - pad.bottom + 14);
+            lastYear = yr;
+        }
+    });
+
+    // Latest value annotation
+    const lastWithData = [...data].reverse().find(d => d.avg_pct_full != null);
+    if (lastWithData) {
+        const pct = lastWithData.avg_pct_full;
+        const color = reservoirColor(pct);
+        ctx.fillStyle = color;
+        ctx.font = 'bold 12px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(pct.toFixed(1) + '% full', W - pad.right, pad.top - 4);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Water impact calculator
 // ---------------------------------------------------------------------------
 
@@ -462,7 +741,12 @@ document.getElementById('calc-cooling').addEventListener('change', updateCalc);
     try {
         await loadDashboard();
         await loadSites();
-        await Promise.all([loadWells(null), loadErcotSummary(), loadErcotMapLayer()]);
+        await Promise.all([
+            loadWells(null),
+            loadErcotSummary(),
+            loadErcotMapLayer(),
+            loadReservoirSummary(),
+        ]);
         updateCalc();
 
         // Layer toggle control
@@ -470,6 +754,7 @@ document.getElementById('calc-cooling').addEventListener('change', updateCalc);
             'Ogallala Wells': wellsLayer,
             'ERCOT Gen Queue': ercotLayer,
             'DC Sites': sitesLayer,
+            'Reservoirs': reservoirsLayer,
         }, { collapsed: false, position: 'bottomleft' }).addTo(map);
     } catch (err) {
         console.error('Failed to load:', err);
