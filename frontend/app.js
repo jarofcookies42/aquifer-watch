@@ -1009,6 +1009,367 @@ function drawGenerationChart(data) {
 }
 
 // ---------------------------------------------------------------------------
+// Water budget stacked area chart (Phase 5)
+// ---------------------------------------------------------------------------
+
+const WU_COLORS = {
+    irrigation:     '#3b82f6',   // blue — dominant
+    municipal:      '#22d3ee',   // cyan
+    manufacturing:  '#f59e0b',   // amber
+    mining:         '#a78bfa',   // violet
+    livestock:      '#4ade80',   // green
+    steam_electric: '#f87171',   // red
+};
+
+const WU_LABELS = {
+    irrigation:     'Irrigation',
+    municipal:      'Municipal',
+    manufacturing:  'Manufacturing',
+    mining:         'Mining',
+    livestock:      'Livestock',
+    steam_electric: 'Steam Electric',
+};
+
+const WU_CATEGORIES = Object.keys(WU_COLORS);
+
+async function loadWaterBudget() {
+    try {
+        const trends = await fetchJSON('/api/water-usage/trends?source_type=total');
+
+        if (!trends.length) {
+            document.getElementById('water-budget-section').style.display = 'none';
+            return;
+        }
+
+        drawWaterBudgetChart(trends);
+        renderWaterBudgetLegend(trends);
+    } catch (err) {
+        console.warn('Water budget load error:', err);
+        document.getElementById('water-budget-section').style.display = 'none';
+    }
+}
+
+function drawWaterBudgetChart(data) {
+    const canvas = document.getElementById('wb-chart');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const W = rect.width;
+    const H = 180;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(dpr, dpr);
+
+    const pad = { top: 20, right: 16, bottom: 30, left: 52 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, W, H);
+
+    // Compute stacked totals per year for y-axis range
+    const totals = data.map(d => {
+        return WU_CATEGORIES.reduce((sum, cat) => sum + (d[cat + '_af'] || 0), 0);
+    });
+    const yMax = Math.ceil(Math.max(...totals) / 100000) * 100000 || 1;
+
+    const xScale = (i) => pad.left + (i / Math.max(data.length - 1, 1)) * plotW;
+    const yScale = (v) => pad.top + plotH - (v / yMax) * plotH;
+
+    // Grid lines
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    const ySteps = 4;
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= ySteps; i++) {
+        const val = (yMax / ySteps) * i;
+        const y = yScale(val);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillText(
+            val >= 1000000 ? (val / 1000000).toFixed(1) + 'M' :
+            val >= 1000    ? Math.round(val / 1000) + 'K' : Math.round(val),
+            pad.left - 6, y + 4
+        );
+    }
+
+    // Y-axis label
+    ctx.save();
+    ctx.translate(11, H / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.fillText('Acre-Feet', 0, 0);
+    ctx.restore();
+
+    // X-axis labels
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, sans-serif';
+    data.forEach((d, i) => {
+        if (i % Math.ceil(data.length / 6) === 0 || i === data.length - 1) {
+            ctx.fillText(d.year, xScale(i), H - pad.bottom + 14);
+        }
+    });
+
+    // Draw stacked areas from bottom up
+    WU_CATEGORIES.forEach((cat, catIdx) => {
+        const baseline = data.map(d => {
+            return WU_CATEGORIES.slice(0, catIdx)
+                .reduce((s, c) => s + (d[c + '_af'] || 0), 0);
+        });
+        const tops = data.map((d, i) => baseline[i] + (d[cat + '_af'] || 0));
+
+        const color = WU_COLORS[cat];
+
+        ctx.fillStyle = color + '55';
+        ctx.beginPath();
+        data.forEach((_, i) => {
+            ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(baseline[i]));
+        });
+        for (let i = data.length - 1; i >= 0; i--) {
+            ctx.lineTo(xScale(i), yScale(tops[i]));
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        tops.forEach((v, i) => {
+            ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(v));
+        });
+        ctx.stroke();
+    });
+}
+
+function renderWaterBudgetLegend(data) {
+    const el = document.getElementById('wb-legend');
+    if (!el) return;
+
+    const avgs = {};
+    WU_CATEGORIES.forEach(cat => {
+        const vals = data.map(d => d[cat + '_af'] || 0).filter(v => v > 0);
+        avgs[cat] = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+    });
+
+    el.innerHTML = WU_CATEGORIES
+        .filter(cat => avgs[cat] > 0)
+        .map(cat => `
+            <span>
+                <span class="wb-dot" style="background:${WU_COLORS[cat]}"></span>
+                ${WU_LABELS[cat]}
+            </span>
+        `).join('');
+}
+
+async function loadCountyWaterBreakdown(county) {
+    const section = document.getElementById('county-water-section');
+    if (!county) {
+        section.style.display = 'none';
+        return;
+    }
+
+    try {
+        const data = await fetchJSON(
+            `/api/water-usage?county=${encodeURIComponent(county)}&source_type=total&limit=200`
+        );
+        if (!data.length) {
+            section.style.display = 'none';
+            return;
+        }
+
+        const maxYear = Math.max(...data.map(d => d.year));
+        const latestRows = data.filter(d => d.year === maxYear);
+
+        const total = latestRows.reduce((s, r) => s + (r.volume_acre_ft || 0), 0);
+        if (!total) { section.style.display = 'none'; return; }
+
+        section.style.display = 'block';
+        const barsEl = document.getElementById('county-bars');
+        barsEl.innerHTML = `
+            <div style="font-size:0.7rem;color:#64748b;margin-bottom:8px">${county} County — ${maxYear} totals</div>
+        `;
+
+        latestRows
+            .sort((a, b) => (b.volume_acre_ft || 0) - (a.volume_acre_ft || 0))
+            .forEach(row => {
+                const vol = row.volume_acre_ft || 0;
+                const pct = Math.round((vol / total) * 100);
+                const color = WU_COLORS[row.category] || '#6b7280';
+                const label = WU_LABELS[row.category] || row.category;
+                barsEl.innerHTML += `
+                    <div class="county-bar-wrap">
+                        <div class="county-bar-label">
+                            <span>${label}</span>
+                            <span style="color:#e2e8f0">${vol.toLocaleString()} af (${pct}%)</span>
+                        </div>
+                        <div class="county-bar-track">
+                            <div class="county-bar-fill" style="width:${pct}%;background:${color}"></div>
+                        </div>
+                    </div>
+                `;
+            });
+    } catch (err) {
+        console.warn('County water breakdown error:', err);
+        section.style.display = 'none';
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agriculture irrigated acreage chart (Phase 5)
+// ---------------------------------------------------------------------------
+
+const AG_CROP_COLORS = {
+    COTTON:   '#f59e0b',
+    WHEAT:    '#84cc16',
+    CORN:     '#facc15',
+    SORGHUM:  '#fb923c',
+    SOYBEANS: '#4ade80',
+    HAY:      '#a3e635',
+};
+
+async function loadAgricultureData() {
+    try {
+        const summary = await fetchJSON('/api/agriculture/summary');
+
+        if (!summary.trend || !summary.trend.length) {
+            return;
+        }
+
+        drawAgChart(summary.trend);
+        renderAgCropGrid(summary.by_crop);
+    } catch (err) {
+        console.warn('Agriculture data load error:', err);
+    }
+}
+
+function drawAgChart(trend) {
+    const canvas = document.getElementById('ag-chart');
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const W = rect.width;
+    const H = 160;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(dpr, dpr);
+
+    const pad = { top: 20, right: 16, bottom: 28, left: 52 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, W, H);
+
+    const data = trend.filter(d => d.total_irrigated_acres > 0);
+    if (!data.length) return;
+
+    const yMax = Math.ceil(Math.max(...data.map(d => d.total_irrigated_acres)) / 500000) * 500000 || 1;
+    const xScale = (i) => pad.left + (i / Math.max(data.length - 1, 1)) * plotW;
+    const yScale = (v) => pad.top + plotH - (v / yMax) * plotH;
+
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    [0, 0.25, 0.5, 0.75, 1].forEach(frac => {
+        const val = yMax * frac;
+        const y = yScale(val);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillText(
+            val >= 1000000 ? (val / 1000000).toFixed(1) + 'M' :
+            val >= 1000    ? Math.round(val / 1000) + 'K' : Math.round(val),
+            pad.left - 6, y + 4
+        );
+    });
+
+    ctx.save();
+    ctx.translate(11, H / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.fillText('Acres', 0, 0);
+    ctx.restore();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#64748b';
+    ctx.font = '10px -apple-system, sans-serif';
+    data.forEach((d, i) => {
+        if (i % Math.ceil(data.length / 5) === 0 || i === data.length - 1) {
+            ctx.fillText(d.year, xScale(i), H - pad.bottom + 12);
+        }
+    });
+
+    const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
+    grad.addColorStop(0, '#4ade8066');
+    grad.addColorStop(1, '#4ade8011');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    data.forEach((d, i) => {
+        ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(d.total_irrigated_acres));
+    });
+    ctx.lineTo(xScale(data.length - 1), pad.top + plotH);
+    ctx.lineTo(xScale(0), pad.top + plotH);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    data.forEach((d, i) => {
+        ctx[i === 0 ? 'moveTo' : 'lineTo'](xScale(i), yScale(d.total_irrigated_acres));
+    });
+    ctx.stroke();
+
+    const first = data[0].total_irrigated_acres;
+    const last = data[data.length - 1].total_irrigated_acres;
+    const pctChange = ((last - first) / first * 100).toFixed(1);
+    ctx.fillStyle = last < first ? '#22c55e' : '#ef4444';
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(
+        `${pctChange > 0 ? '+' : ''}${pctChange}% since ${data[0].year}`,
+        W - pad.right, pad.top - 4
+    );
+}
+
+function renderAgCropGrid(byCrop) {
+    const el = document.getElementById('ag-crop-grid');
+    if (!el || !byCrop.length) return;
+
+    el.innerHTML = byCrop.slice(0, 6).map(item => {
+        const crop = item.crop_type || 'Other';
+        const acres = item.total_acres ? Math.round(parseFloat(item.total_acres)).toLocaleString() : 'N/A';
+        const color = AG_CROP_COLORS[crop] || '#6b7280';
+        return `
+            <div class="ag-crop-card">
+                <div class="crop-name" style="color:${color}">${crop}</div>
+                <div class="crop-acres">${acres}</div>
+                <div class="crop-label">irrigated acres</div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ---------------------------------------------------------------------------
 // Drought color scale
 // ---------------------------------------------------------------------------
 
@@ -1429,6 +1790,8 @@ document.getElementById('calc-cooling').addEventListener('change', updateCalc);
             loadDroughtSummary(),
             loadDroughtTrendChart(),
             loadDroughtOverlay(),
+            loadWaterBudget(),
+            loadAgricultureData(),
         ]);
         updateCalc();
 
