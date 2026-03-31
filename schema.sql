@@ -309,6 +309,53 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
 );
 
 -- ============================================================
+-- ERCOT: Settlement point prices (real-time & historical)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ercot_pricing (
+    ts                  TIMESTAMPTZ NOT NULL,
+    settlement_point    TEXT NOT NULL,           -- e.g. "HB_WEST", "LZ_WEST"
+    price_per_mwh       NUMERIC NOT NULL,        -- $/MWh, can be negative
+    ingested_at         TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (ts, settlement_point)
+);
+
+DO $$ BEGIN
+    PERFORM create_hypertable('ercot_pricing', 'ts', if_not_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TimescaleDB not available, ercot_pricing remains a regular table';
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_ercot_pricing_point_time
+    ON ercot_pricing(settlement_point, ts DESC);
+
+-- ============================================================
+-- ERCOT: Wind and solar real-time generation output
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ercot_generation (
+    ts              TIMESTAMPTZ NOT NULL,
+    fuel_type       TEXT NOT NULL,               -- 'Wind' or 'Solar'
+    output_mw       NUMERIC,                     -- actual generation in MW
+    forecast_mw     NUMERIC,                     -- ERCOT forecast (when available)
+    ingested_at     TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (ts, fuel_type)
+);
+
+DO $$ BEGIN
+    PERFORM create_hypertable('ercot_generation', 'ts', if_not_exists => TRUE);
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'TimescaleDB not available, ercot_generation remains a regular table';
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_ercot_gen_fuel_time
+    ON ercot_generation(fuel_type, ts DESC);
+
+-- Extend data_source enum to include pricing source
+DO $$ BEGIN
+    ALTER TYPE data_source ADD VALUE 'ercot_pricing';
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- ============================================================
 -- Convenience views (CREATE OR REPLACE for idempotency)
 -- ============================================================
 
@@ -339,6 +386,38 @@ SELECT DISTINCT ON (well_id)
     measurement_method
 FROM water_levels
 ORDER BY well_id, measured_at DESC;
+
+-- Latest price per settlement point
+CREATE OR REPLACE VIEW latest_ercot_pricing AS
+SELECT DISTINCT ON (settlement_point)
+    settlement_point,
+    ts,
+    price_per_mwh
+FROM ercot_pricing
+ORDER BY settlement_point, ts DESC;
+
+-- Daily average pricing (useful for trend charts)
+CREATE OR REPLACE VIEW daily_avg_ercot_pricing AS
+SELECT
+    date_trunc('day', ts)                                   AS day,
+    settlement_point,
+    AVG(price_per_mwh)                                      AS avg_price,
+    MIN(price_per_mwh)                                      AS min_price,
+    MAX(price_per_mwh)                                      AS max_price,
+    COUNT(*) FILTER (WHERE price_per_mwh < 0)               AS negative_hours
+FROM ercot_pricing
+GROUP BY date_trunc('day', ts), settlement_point
+ORDER BY day DESC;
+
+-- Latest generation snapshot per fuel type
+CREATE OR REPLACE VIEW latest_ercot_generation AS
+SELECT DISTINCT ON (fuel_type)
+    fuel_type,
+    ts,
+    output_mw,
+    forecast_mw
+FROM ercot_generation
+ORDER BY fuel_type, ts DESC;
 
 -- Site intelligence summary
 CREATE OR REPLACE VIEW site_dashboard AS

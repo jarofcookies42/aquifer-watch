@@ -398,6 +398,187 @@ def water_impact(
 
 
 # ---------------------------------------------------------------------------
+# Energy Market routes
+# ---------------------------------------------------------------------------
+
+@app.get("/api/energy/pricing")
+def energy_pricing(
+    zone: str = Query("HB_WEST", description="Settlement point name (e.g. HB_WEST, LZ_WEST)"),
+    days: int = Query(7, ge=1, le=90, description="Days of history to return"),
+    resolution: str = Query(
+        "raw", description="Time resolution: 'raw' (all rows), 'hourly', 'daily'"
+    ),
+):
+    """
+    Settlement point prices for a given ERCOT zone.
+    Default: West Hub (HB_WEST) for the last 7 days.
+    Negative prices are included and highlighted client-side.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if resolution == "daily":
+                cur.execute(
+                    """
+                    SELECT
+                        date_trunc('day', ts)::date::text AS ts,
+                        AVG(price_per_mwh)               AS price_per_mwh,
+                        MIN(price_per_mwh)               AS min_price,
+                        MAX(price_per_mwh)               AS max_price,
+                        COUNT(*) FILTER (WHERE price_per_mwh < 0) AS negative_intervals
+                    FROM ercot_pricing
+                    WHERE settlement_point = %s
+                      AND ts >= now() - interval '1 day' * %s
+                    GROUP BY date_trunc('day', ts)
+                    ORDER BY 1
+                    """,
+                    (zone, days),
+                )
+            elif resolution == "hourly":
+                cur.execute(
+                    """
+                    SELECT
+                        date_trunc('hour', ts)::text     AS ts,
+                        AVG(price_per_mwh)               AS price_per_mwh,
+                        MIN(price_per_mwh)               AS min_price,
+                        MAX(price_per_mwh)               AS max_price
+                    FROM ercot_pricing
+                    WHERE settlement_point = %s
+                      AND ts >= now() - interval '1 day' * %s
+                    GROUP BY date_trunc('hour', ts)
+                    ORDER BY 1
+                    """,
+                    (zone, days),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT ts::text, price_per_mwh
+                    FROM ercot_pricing
+                    WHERE settlement_point = %s
+                      AND ts >= now() - interval '1 day' * %s
+                    ORDER BY ts
+                    """,
+                    (zone, days),
+                )
+            rows = cur.fetchall()
+
+    return {
+        "zone": zone,
+        "days": days,
+        "resolution": resolution,
+        "count": len(rows),
+        "data": [dict(r) for r in rows],
+    }
+
+
+@app.get("/api/energy/generation")
+def energy_generation(
+    days: int = Query(7, ge=1, le=90, description="Days of history to return"),
+    fuel_type: Optional[str] = Query(None, description="Filter by fuel type: Wind or Solar"),
+):
+    """
+    Wind and solar generation output over the given time window.
+    Returns interleaved rows for both fuels unless filtered.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            conditions = [
+                "ts >= now() - interval '1 day' * %s",
+            ]
+            params: list = [days]
+
+            if fuel_type:
+                conditions.append("fuel_type = %s")
+                params.append(fuel_type)
+
+            cur.execute(
+                f"""
+                SELECT ts::text, fuel_type, output_mw, forecast_mw
+                FROM ercot_generation
+                WHERE {' AND '.join(conditions)}
+                ORDER BY ts, fuel_type
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+
+    return {
+        "days": days,
+        "fuel_type": fuel_type,
+        "count": len(rows),
+        "data": [dict(r) for r in rows],
+    }
+
+
+@app.get("/api/energy/summary")
+def energy_summary():
+    """
+    Latest snapshot: current prices for key ERCOT zones, wind and solar output,
+    plus daily averages. Used for the dashboard summary panel.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Latest price per zone
+            cur.execute("""
+                SELECT settlement_point, ts::text, price_per_mwh
+                FROM latest_ercot_pricing
+                ORDER BY settlement_point
+            """)
+            latest_prices = {r["settlement_point"]: dict(r) for r in cur.fetchall()}
+
+            # Latest wind + solar
+            cur.execute("""
+                SELECT fuel_type, ts::text, output_mw, forecast_mw
+                FROM latest_ercot_generation
+            """)
+            latest_gen = {r["fuel_type"]: dict(r) for r in cur.fetchall()}
+
+            # Today's pricing averages for HB_WEST
+            cur.execute("""
+                SELECT
+                    AVG(price_per_mwh)                                 AS avg_price,
+                    MIN(price_per_mwh)                                 AS min_price,
+                    MAX(price_per_mwh)                                 AS max_price,
+                    COUNT(*) FILTER (WHERE price_per_mwh < 0)          AS negative_intervals
+                FROM ercot_pricing
+                WHERE settlement_point = 'HB_WEST'
+                  AND ts >= date_trunc('day', now())
+            """)
+            today = cur.fetchone()
+
+            # Row count / data freshness
+            cur.execute("SELECT COUNT(*) AS n FROM ercot_pricing")
+            pricing_rows = cur.fetchone()["n"]
+            cur.execute("SELECT COUNT(*) AS n FROM ercot_generation")
+            gen_rows = cur.fetchone()["n"]
+
+    west_price = latest_prices.get("HB_WEST", {})
+    wind = latest_gen.get("Wind", {})
+    solar = latest_gen.get("Solar", {})
+
+    return {
+        "current": {
+            "hb_west_price": west_price.get("price_per_mwh"),
+            "lz_west_price": latest_prices.get("LZ_WEST", {}).get("price_per_mwh"),
+            "wind_mw": wind.get("output_mw"),
+            "solar_mw": solar.get("output_mw"),
+            "data_as_of": west_price.get("ts") or wind.get("ts"),
+        },
+        "today_hb_west": {
+            "avg_price": float(today["avg_price"]) if today["avg_price"] else None,
+            "min_price": float(today["min_price"]) if today["min_price"] else None,
+            "max_price": float(today["max_price"]) if today["max_price"] else None,
+            "negative_intervals": today["negative_intervals"] or 0,
+        },
+        "all_zones": latest_prices,
+        "data_loaded": {
+            "pricing_rows": pricing_rows,
+            "generation_rows": gen_rows,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Serve frontend
 # ---------------------------------------------------------------------------
 
