@@ -691,7 +691,11 @@
             <div class="reservoir-panel" id="reservoir-panel">
                 <h2>Surface Water Reservoirs</h2>
                 <p class="panel-subtitle">West Texas municipal supply reservoirs — percent of conservation storage</p>
-                <div class="reservoir-summary-row" id="res-summary-row"></div>
+                <div class="reservoir-summary-row" id="res-summary-row" style="display:none;gap:12px;justify-content:space-around;margin:8px 0;">
+                    <div style="text-align:center"><span id="res-stat-pct" style="font-size:1.3em;font-weight:700;color:#60a5fa">—</span><div style="font-size:0.7em;color:#94a3b8">Avg Full</div></div>
+                    <div style="text-align:center"><span id="res-stat-storage" style="font-size:1.3em;font-weight:700;color:#60a5fa">—</span><div style="font-size:0.7em;color:#94a3b8">Ac-Ft</div></div>
+                    <div style="text-align:center"><span id="res-stat-count" style="font-size:1.3em;font-weight:700;color:#60a5fa">—</span><div style="font-size:0.7em;color:#94a3b8">Reservoirs</div></div>
+                </div>
                 <div id="reservoir-list"></div>
             </div>
             <div class="res-chart-section" id="res-chart-section">

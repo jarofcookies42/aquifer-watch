@@ -15,8 +15,8 @@ Usage:
     python ingest_drought.py --dry-run          # Preview without DB writes
 
 API endpoint:
-    https://usdm.climate.columbia.edu/api/webservice/statisticsdata/percentofarea
-    /{fips}/{startDate}/{endDate}/county/
+    https://usdmdataservices.unl.edu/api/CountyStatistics/
+    GetDroughtSeverityStatisticsByAreaPercent?aoi={fips}&startdate=...&enddate=...
 
 Requirements:
     pip install requests psycopg2-binary
@@ -37,10 +37,12 @@ import requests
 # Configuration
 # ---------------------------------------------------------------------------
 
-USDM_BASES = [
-    "https://usdm.climate.columbia.edu/api/webservice/statisticsdata/percentofarea",
-    "https://droughtmonitor.unl.edu/api/webservice/statisticsdata/percentofarea",
-]
+# Primary: UNL Data Services API (returns JSON with cumulative D0-D4 percentages)
+# statisticsType=1 = cumulative (D0 includes D1+D2+D3+D4, etc.)
+USDM_URL = (
+    "https://usdmdataservices.unl.edu/api/CountyStatistics"
+    "/GetDroughtSeverityStatisticsByAreaPercent"
+)
 
 # Target counties: name → 5-digit FIPS code
 # Covers all counties within ~50 miles of tracked data center sites, matching
@@ -150,8 +152,9 @@ def fetch_drought_for_county(
     """
     Fetch weekly drought status for a single county between start and end dates.
 
-    The USDM API returns one row per weekly map release (Tuesdays).
-    Dates are formatted as YYYYMMDD.
+    Uses the UNL Data Services API which returns cumulative percentages
+    (D0 = % at D0 or worse). We convert to non-cumulative values for storage:
+    d0_pct = D0 - D1, d1_pct = D1 - D2, etc.
 
     Args:
         fips: 5-digit county FIPS code (e.g. "48303")
@@ -162,35 +165,35 @@ def fetch_drought_for_county(
     Returns:
         List of DroughtRecord, one per weekly release in the range.
     """
-    data = None
-    for base_url in USDM_BASES:
-        url = (
-            f"{base_url}/{fips}"
-            f"/{start.strftime('%Y%m%d')}"
-            f"/{end.strftime('%Y%m%d')}"
-            "/county/"
-        )
+    params = {
+        "aoi": fips,
+        "startdate": start.strftime("%-m/%-d/%Y"),
+        "enddate": end.strftime("%-m/%-d/%Y"),
+        "statisticsType": "1",  # cumulative percent of area
+    }
 
-        try:
-            resp = _SESSION.get(url, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            if data:
-                break  # Success — stop trying other endpoints
-        except requests.HTTPError as e:
-            log.warning(f"  HTTP {e.response.status_code} for {county_name} ({fips}): {url}")
-        except requests.RequestException as e:
-            log.warning(f"  Request error for {county_name} ({fips}): {e}")
-        except json.JSONDecodeError:
-            log.warning(f"  Invalid JSON for {county_name} ({fips})")
+    try:
+        resp = _SESSION.get(USDM_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.HTTPError as e:
+        log.warning(f"  HTTP {e.response.status_code} for {county_name} ({fips})")
+        return []
+    except requests.RequestException as e:
+        log.warning(f"  Request error for {county_name} ({fips}): {e}")
+        return []
+    except json.JSONDecodeError:
+        log.warning(f"  Invalid JSON for {county_name} ({fips})")
+        return []
 
     if not data:
         return []
 
     records: list[DroughtRecord] = []
     for row in data:
-        # Parse the map date — format is "YYYYMMDD" or "YYYY-MM-DD" depending on API version
-        raw_date = str(row.get("MapDate", "")).replace("-", "")
+        # Parse date — UNL API returns ISO format "2026-03-24T00:00:00"
+        raw_date = str(row.get("mapDate", row.get("MapDate", "")))
+        raw_date = raw_date.split("T")[0].replace("-", "")
         if len(raw_date) != 8:
             continue
         try:
@@ -199,20 +202,30 @@ def fetch_drought_for_county(
             continue
 
         def _pct(key: str) -> Optional[float]:
-            v = row.get(key)
+            """Try lowercase then uppercase field name."""
+            v = row.get(key.lower(), row.get(key))
             return float(v) if v is not None else None
+
+        # UNL API returns CUMULATIVE values: D0 includes D1+D2+D3+D4
+        # Convert to non-cumulative for our schema
+        cum_d0 = _pct("d0") or 0.0
+        cum_d1 = _pct("d1") or 0.0
+        cum_d2 = _pct("d2") or 0.0
+        cum_d3 = _pct("d3") or 0.0
+        cum_d4 = _pct("d4") or 0.0
+        no_drought = _pct("none") or (100.0 - cum_d0)
 
         rec = DroughtRecord(
             county_fips=fips,
             county_name=county_name,
-            state_abbr=str(row.get("State", "TX")),
+            state_abbr=str(row.get("state", row.get("State", "TX"))),
             valid_date=valid_date,
-            no_drought_pct=_pct("None"),
-            d0_pct=_pct("D0"),
-            d1_pct=_pct("D1"),
-            d2_pct=_pct("D2"),
-            d3_pct=_pct("D3"),
-            d4_pct=_pct("D4"),
+            no_drought_pct=round(no_drought, 2),
+            d0_pct=round(cum_d0 - cum_d1, 2),
+            d1_pct=round(cum_d1 - cum_d2, 2),
+            d2_pct=round(cum_d2 - cum_d3, 2),
+            d3_pct=round(cum_d3 - cum_d4, 2),
+            d4_pct=round(cum_d4, 2),
             worst_category="",  # filled below
         )
         rec.worst_category = _worst_category(rec)
