@@ -1602,6 +1602,11 @@ async function loadDroughtOverlay() {
 
     droughtLayer.clearLayers();
 
+    if (!countyGeo || !countyGeo.features || !countyGeo.features.length) {
+        console.warn('Drought overlay: no county geometry returned');
+        return;
+    }
+
     L.geoJSON(countyGeo, {
         style: (feature) => {
             const fips = feature.properties.GEOID;
